@@ -102,9 +102,20 @@ namespace Emby.Xtream.Plugin.Service
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly int MaxHistoryEntries = 10;
+        // No client-wide timeout: each request sets its own through GetProviderStringAsync, since a
+        // whole category's list can take far longer to build than one series' details.
         private static readonly HttpClient SharedHttpClient = new HttpClient(
             XtreamRateLimitHandler.CreateDefault())
-        { Timeout = TimeSpan.FromSeconds(30) };
+        { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
+
+        /// <summary>Timeout for a single-item request (categories, one series' details).</summary>
+        internal static readonly TimeSpan ItemRequestTimeout = TimeSpan.FromSeconds(30);
+
+        /// <summary>
+        /// Timeout for a catalogue list (all VOD streams or series, or one category's). Servers build
+        /// these on demand, and Dispatcharr's take well over 30 s for a large category.
+        /// </summary>
+        internal static readonly TimeSpan CatalogueRequestTimeout = TimeSpan.FromSeconds(180);
 
         // Increment when naming logic changes so existing installs force a full re-sync on next run.
         // 2: specials moved from Season 01 / E01 to Season 00 / E00. The episode hash only covers
@@ -497,7 +508,10 @@ namespace Emby.Xtream.Plugin.Service
 
                 // Fetch streams for selected categories
                 _movieProgress.Phase = "Fetching VOD streams";
-                var vodFetch = await FetchVodStreamsAsync(config.SelectedVodCategoryIds, config, cancellationToken).ConfigureAwait(false);
+                var vodFetch = await FetchVodStreamsAsync(
+                    config.SelectedVodCategoryIds, config, cancellationToken, _movieProgress, "Fetching movie list").ConfigureAwait(false);
+                _movieProgress.Completed = 0;
+                _movieProgress.Total = 0;
                 var fetchedStreams = vodFetch.Items;
 
                 if (vodFetch.HadFailures)
@@ -843,7 +857,10 @@ namespace Emby.Xtream.Plugin.Service
                     : null;
 
                 _seriesProgress.Phase = "Fetching series list";
-                var seriesFetch = await FetchSeriesListAsync(config.SelectedSeriesCategoryIds, config, cancellationToken).ConfigureAwait(false);
+                var seriesFetch = await FetchSeriesListAsync(
+                    config.SelectedSeriesCategoryIds, config, cancellationToken, _seriesProgress, "Fetching series list").ConfigureAwait(false);
+                _seriesProgress.Completed = 0;
+                _seriesProgress.Total = 0;
                 var fetchedSeries = seriesFetch.Items;
 
                 if (seriesFetch.HadFailures)
@@ -2303,11 +2320,54 @@ namespace Emby.Xtream.Plugin.Service
             return rootFolder;
         }
 
+        /// <summary>
+        /// GET <paramref name="url"/> as a string, giving up after <paramref name="timeout"/>.
+        /// Cancelling <paramref name="cancellationToken"/> (the Stop button) aborts the request at
+        /// once; a timeout is reported as a <see cref="TimeoutException"/> so it is not mistaken
+        /// for a stop.
+        /// </summary>
+        /// <summary>
+        /// Shows how far the per-category catalogue fetch has got, which otherwise sat on
+        /// "Fetching series list" with an empty bar for as long as the server took. Uses the
+        /// progress bar's counters; the sync resets them before it counts titles.
+        /// </summary>
+        private static void ReportCategoryProgress(SyncProgress progress, string phaseLabel, int done, int total, int failed)
+        {
+            if (progress == null) return;
+            progress.Total = total;
+            progress.Completed = done;
+            progress.Phase = string.Format(CultureInfo.InvariantCulture,
+                "{0}: {1} of {2} categories{3}",
+                phaseLabel ?? "Fetching", done, total,
+                failed > 0 ? string.Format(CultureInfo.InvariantCulture, " ({0} not answering)", failed) : string.Empty);
+        }
+
+        private async Task<string> GetProviderStringAsync(string url, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                cts.CancelAfter(timeout);
+                try
+                {
+                    using (var response = await _httpClient.GetAsync(url, cts.Token).ConfigureAwait(false))
+                    {
+                        response.EnsureSuccessStatusCode();
+                        return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    throw new TimeoutException(string.Format(CultureInfo.InvariantCulture,
+                        "No answer from the server within {0} seconds", (int)timeout.TotalSeconds));
+                }
+            }
+        }
+
         private async Task<List<Category>> FetchCategoriesAsync(string action, PluginConfiguration config, CancellationToken cancellationToken)
         {
             var url = XtreamUrls.PlayerApi(config, action);
 
-            var json = await _httpClient.GetStringAsync(url).ConfigureAwait(false);
+            var json = await GetProviderStringAsync(url, ItemRequestTimeout, cancellationToken).ConfigureAwait(false);
             return STJ.JsonSerializer.Deserialize<List<Category>>(json, JsonOptions)
                 ?? new List<Category>();
         }
@@ -2338,8 +2398,11 @@ namespace Emby.Xtream.Plugin.Service
         }
 
         private async Task<CatalogueFetchResult<VodStreamInfo>> FetchVodStreamsAsync(
-            int[] categoryIds, PluginConfiguration config, CancellationToken cancellationToken)
+            int[] categoryIds, PluginConfiguration config, CancellationToken cancellationToken,
+            SyncProgress progress = null, string phaseLabel = null)
         {
+            int categoriesDone = 0;
+            int categoriesFailed = 0;
             var result = new CatalogueFetchResult<VodStreamInfo>();
             var allStreams = new List<VodStreamInfo>();
 
@@ -2350,7 +2413,7 @@ namespace Emby.Xtream.Plugin.Service
                 // whole-catalogue request failing.
                 var url = XtreamUrls.PlayerApi(config, "get_vod_streams");
 
-                var json = await _httpClient.GetStringAsync(url).ConfigureAwait(false);
+                var json = await GetProviderStringAsync(url, CatalogueRequestTimeout, cancellationToken).ConfigureAwait(false);
                 allStreams = STJ.JsonSerializer.Deserialize<List<VodStreamInfo>>(json, JsonOptions)
                     ?? new List<VodStreamInfo>();
             }
@@ -2365,7 +2428,7 @@ namespace Emby.Xtream.Plugin.Service
                     {
                         var url = XtreamUrls.PlayerApi(config, "get_vod_streams", "category_id", catId);
 
-                        var json = await _httpClient.GetStringAsync(url).ConfigureAwait(false);
+                        var json = await GetProviderStringAsync(url, CatalogueRequestTimeout, cancellationToken).ConfigureAwait(false);
                         var streams = STJ.JsonSerializer.Deserialize<List<VodStreamInfo>>(json, JsonOptions)
                             ?? new List<VodStreamInfo>();
 
@@ -2380,17 +2443,24 @@ namespace Emby.Xtream.Plugin.Service
 
                         return Tuple.Create(streams, true);
                     }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
                     catch (Exception ex)
                     {
                         // Report the failure rather than returning an empty list. An empty list
                         // is indistinguishable from an empty category and would let orphan
                         // cleanup delete this category's existing files.
+                        Interlocked.Increment(ref categoriesFailed);
                         _logger.Warn("Failed to fetch VOD streams for category {0}: {1}", catId, ex.Message);
                         return Tuple.Create(new List<VodStreamInfo>(), false);
                     }
                     finally
                     {
                         semaphore.Release();
+                        ReportCategoryProgress(progress, phaseLabel, Interlocked.Increment(ref categoriesDone),
+                            categoryIds.Length, Volatile.Read(ref categoriesFailed));
                     }
                 });
 
@@ -2416,8 +2486,11 @@ namespace Emby.Xtream.Plugin.Service
         }
 
         private async Task<CatalogueFetchResult<SeriesInfo>> FetchSeriesListAsync(
-            int[] categoryIds, PluginConfiguration config, CancellationToken cancellationToken)
+            int[] categoryIds, PluginConfiguration config, CancellationToken cancellationToken,
+            SyncProgress progress = null, string phaseLabel = null)
         {
+            int categoriesDone = 0;
+            int categoriesFailed = 0;
             var result = new CatalogueFetchResult<SeriesInfo>();
             var allSeries = new List<SeriesInfo>();
 
@@ -2425,7 +2498,7 @@ namespace Emby.Xtream.Plugin.Service
             {
                 var url = XtreamUrls.PlayerApi(config, "get_series");
 
-                var json = await _httpClient.GetStringAsync(url).ConfigureAwait(false);
+                var json = await GetProviderStringAsync(url, CatalogueRequestTimeout, cancellationToken).ConfigureAwait(false);
                 allSeries = STJ.JsonSerializer.Deserialize<List<SeriesInfo>>(json, JsonOptions)
                     ?? new List<SeriesInfo>();
             }
@@ -2440,7 +2513,7 @@ namespace Emby.Xtream.Plugin.Service
                     {
                         var url = XtreamUrls.PlayerApi(config, "get_series", "category_id", catId);
 
-                        var json = await _httpClient.GetStringAsync(url).ConfigureAwait(false);
+                        var json = await GetProviderStringAsync(url, CatalogueRequestTimeout, cancellationToken).ConfigureAwait(false);
                         var series = STJ.JsonSerializer.Deserialize<List<SeriesInfo>>(json, JsonOptions)
                             ?? new List<SeriesInfo>();
 
@@ -2453,15 +2526,22 @@ namespace Emby.Xtream.Plugin.Service
 
                         return Tuple.Create(series, true);
                     }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
                     catch (Exception ex)
                     {
                         // See FetchVodStreamsAsync: a failure must not look like an empty category.
+                        Interlocked.Increment(ref categoriesFailed);
                         _logger.Warn("Failed to fetch series for category {0}: {1}", catId, ex.Message);
                         return Tuple.Create(new List<SeriesInfo>(), false);
                     }
                     finally
                     {
                         semaphore.Release();
+                        ReportCategoryProgress(progress, phaseLabel, Interlocked.Increment(ref categoriesDone),
+                            categoryIds.Length, Volatile.Read(ref categoriesFailed));
                     }
                 });
 
@@ -2490,7 +2570,7 @@ namespace Emby.Xtream.Plugin.Service
         {
             var url = XtreamUrls.PlayerApi(config, "get_series_info", "series_id", seriesId);
 
-            var detail = await GetSeriesDetailAsync(url).ConfigureAwait(false);
+            var detail = await GetSeriesDetailAsync(url, cancellationToken).ConfigureAwait(false);
             if (HasEpisodes(detail))
             {
                 return detail;
@@ -2507,7 +2587,7 @@ namespace Emby.Xtream.Plugin.Service
                 await Task.Delay(SeriesDetailRetryDelayMs, cancellationToken).ConfigureAwait(false);
             }
 
-            var retried = await GetSeriesDetailAsync(url).ConfigureAwait(false);
+            var retried = await GetSeriesDetailAsync(url, cancellationToken).ConfigureAwait(false);
             if (HasEpisodes(retried))
             {
                 _logger.Info("Series {0} returned episodes on retry after an empty answer", seriesId);
@@ -2516,9 +2596,9 @@ namespace Emby.Xtream.Plugin.Service
             return retried;
         }
 
-        private async Task<SeriesDetailInfo> GetSeriesDetailAsync(string url)
+        private async Task<SeriesDetailInfo> GetSeriesDetailAsync(string url, CancellationToken cancellationToken)
         {
-            var json = await _httpClient.GetStringAsync(url).ConfigureAwait(false);
+            var json = await GetProviderStringAsync(url, ItemRequestTimeout, cancellationToken).ConfigureAwait(false);
             return STJ.JsonSerializer.Deserialize<SeriesDetailInfo>(json, JsonOptions);
         }
 

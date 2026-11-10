@@ -368,6 +368,21 @@ namespace Emby.Xtream.Plugin.Client
                    ?? new List<DispatcharrVodProvider>();
         }
 
+        /// <summary>
+        /// Returns a series' episodes with their provider streams, in one request. The series ID is
+        /// the one Dispatcharr's Xtream <c>get_series</c> hands out.
+        /// </summary>
+        public async Task<List<DispatcharrVodEpisode>> GetVodSeriesEpisodesAsync(
+            string baseUrl, int xtreamSeriesId, CancellationToken cancellationToken)
+        {
+            var json = await GetAuthenticatedAsync(
+                string.Format(CultureInfo.InvariantCulture, "{0}/api/vod/series/{1}/episodes/", baseUrl, xtreamSeriesId),
+                baseUrl, cancellationToken).ConfigureAwait(false);
+            if (json == null) return new List<DispatcharrVodEpisode>();
+            return JsonSerializer.Deserialize<List<DispatcharrVodEpisode>>(json, JsonOptions)
+                   ?? new List<DispatcharrVodEpisode>();
+        }
+
         public async Task<bool> TestConnectionAsync(string baseUrl, CancellationToken cancellationToken)
         {
             try

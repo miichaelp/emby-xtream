@@ -119,7 +119,7 @@ When a new version is out, the plugin settings show an update banner. Click **Up
 - Live TV plays through Dispatcharr's proxy. If Dispatcharr does not know a channel, it can fall back to the Xtream server.
 - **Stream URL → Xtream server** plays channels through Dispatcharr's Xtream URL instead, so Dispatcharr shows which user is watching.
 - Codec, resolution and bitrate come from Dispatcharr's stream stats (for example filled by [Streamflow](https://github.com/krinkuto11/streamflow)), so channels start without a probe. The video codec follows the channel's stream profile, and can be overridden.
-- Movies that Dispatcharr has from more than one provider get one version per provider.
+- Movies and series episodes that Dispatcharr has from more than one provider get one version per provider.
 - **Send video as the first track** makes Dispatcharr put video before audio on every channel, so Emby can transcode channels whose source carries audio first. See Troubleshooting.
 
 ### Dashboard and settings
@@ -158,7 +158,7 @@ The Xtream protocol puts your username and password in every stream URL; there i
 
 To limit this:
 
-- **Use Dispatcharr.** Live TV and movies that Dispatcharr has from more than one provider then use Dispatcharr's proxy URLs, which contain no credentials. Other movies and series episodes still use the Xtream URL, and so does Live TV when **Stream URL** is set to the Xtream server.
+- **Use Dispatcharr.** Live TV, and movies and episodes that Dispatcharr has from more than one provider, then use Dispatcharr's proxy URLs, which contain no credentials. Other movies and episodes still use the Xtream URL, and so does Live TV when **Stream URL** is set to the Xtream server.
 - **Restrict access** to the Library Folder, and do not mount it into unrelated containers.
 - **Use a separate provider account** for Emby, if your provider allows it, so you can change it on its own.
 

@@ -206,6 +206,15 @@ namespace Emby.Xtream.Plugin.Service
         /// to be order-independent of the JSON layout.
         /// </summary>
         internal static string ComputeSeriesEpisodeHash(Dictionary<string, List<EpisodeInfo>> episodes)
+            => ComputeSeriesEpisodeHash(episodes, null);
+
+        /// <summary>
+        /// As above, plus the Dispatcharr versions of each multi-version episode, so a provider
+        /// stream added or dropped in Dispatcharr rewrites the series. Without versions the hash is
+        /// the same as before, so turning Dispatcharr on does not invalidate stored hashes by itself.
+        /// </summary>
+        internal static string ComputeSeriesEpisodeHash(
+            Dictionary<string, List<EpisodeInfo>> episodes, Dictionary<int, EpisodeVersions> versions)
         {
             var sb = new StringBuilder();
             foreach (var seasonEntry in episodes.OrderBy(e => e.Key))
@@ -215,6 +224,12 @@ namespace Emby.Xtream.Plugin.Service
                     sb.Append(ep.Id);
                     sb.Append('.');
                     sb.Append(ep.ContainerExtension ?? "mp4");
+                    EpisodeVersions v;
+                    if (versions != null && versions.TryGetValue(ep.Id, out v))
+                    {
+                        sb.Append('@').Append(v.Uuid);
+                        foreach (var sid in v.StreamIds) sb.Append(',').Append(sid);
+                    }
                     sb.Append('|');
                 }
             }
@@ -886,6 +901,10 @@ namespace Emby.Xtream.Plugin.Service
                 var writtenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var semaphore = new SemaphoreSlim(ResolveSyncParallelism(config));
 
+                // Shared Dispatcharr VOD client: one request per series, only for series that got
+                // past the skip checks above, so unchanged shows cost nothing extra.
+                var dispatcharrVodClient = CreateDispatcharrVodClient(config);
+
                 // Episode hash cache: load stored hashes so we can skip file I/O for unchanged series
                 var storedHashes = DeserializeEpisodeHashes(config.SeriesEpisodeHashesJson);
                 var updatedHashes = new ConcurrentDictionary<string, string>();
@@ -1140,7 +1159,10 @@ namespace Emby.Xtream.Plugin.Service
 
                         // Episode hash skip: compare episode ID+ext hash to detect unchanged content
                         // even when the provider bumped last_modified globally.
-                        var currentEpHash = ComputeSeriesEpisodeHash(detail.Episodes);
+                        var episodeVersions = dispatcharrVodClient == null
+                            ? new Dictionary<int, EpisodeVersions>()
+                            : await FetchEpisodeVersionsAsync(dispatcharrVodClient, config, series, cancellationToken).ConfigureAwait(false);
+                        var currentEpHash = ComputeSeriesEpisodeHash(detail.Episodes, episodeVersions);
                         var epHashKey = series.SeriesId.ToString(CultureInfo.InvariantCulture);
                         updatedHashes[epHashKey] = currentEpHash;
 
@@ -1217,28 +1239,37 @@ namespace Emby.Xtream.Plugin.Service
 
                                 var streamUrl = XtreamUrls.Stream(config, "series", episode.Id, ext);
 
-                                // Skip write if file content is already up to date (avoids Emby library re-scan)
-                                var fileExists = File.Exists(strmPath);
-                                if (!fileExists || File.ReadAllText(strmPath) != streamUrl)
+                                // One entry, or one per provider stream when Dispatcharr has the
+                                // episode from more than one source (as for movies, ADR-025).
+                                foreach (var entry in BuildEpisodeStrmEntries(
+                                    strmPath, streamUrl, episode.Id, episodeVersions, config.DispatcharrUrl))
                                 {
-                                    Directory.CreateDirectory(seasonDir);
-                                    File.WriteAllText(strmPath, streamUrl);
+                                    var itemPath = entry.Key;
+                                    var itemUrl = entry.Value;
 
-                                    if (!fileExists)
+                                    // Skip write if file content is already up to date (avoids Emby library re-scan)
+                                    var fileExists = File.Exists(itemPath);
+                                    if (!fileExists || File.ReadAllText(itemPath) != itemUrl)
                                     {
-                                        Interlocked.Increment(ref _episodeProgress.Added);
+                                        Directory.CreateDirectory(seasonDir);
+                                        File.WriteAllText(itemPath, itemUrl);
+
+                                        if (!fileExists)
+                                        {
+                                            Interlocked.Increment(ref _episodeProgress.Added);
+                                        }
                                     }
-                                }
-                                else
-                                {
-                                    Interlocked.Increment(ref _episodeProgress.Skipped);
-                                }
+                                    else
+                                    {
+                                        Interlocked.Increment(ref _episodeProgress.Skipped);
+                                    }
 
-                                Interlocked.Increment(ref _episodeProgress.Total);
+                                    Interlocked.Increment(ref _episodeProgress.Total);
 
-                                lock (writtenPaths)
-                                {
-                                    writtenPaths.Add(strmPath);
+                                    lock (writtenPaths)
+                                    {
+                                        writtenPaths.Add(itemPath);
+                                    }
                                 }
                             }
                         }
@@ -1440,7 +1471,83 @@ namespace Emby.Xtream.Plugin.Service
         /// <summary>Handler for the Dispatcharr VOD client; null uses the real network. For tests.</summary>
         internal System.Net.Http.HttpMessageHandler DispatcharrHandler { get; set; }
 
-        /// <summary>The Dispatcharr client the movie writer asks for extra versions, or null without Dispatcharr.</summary>
+        /// <summary>The provider streams Dispatcharr has for one episode, when it has more than one.</summary>
+        internal sealed class EpisodeVersions
+        {
+            public string Uuid;
+            public List<string> StreamIds;
+        }
+
+        /// <summary>
+        /// Asks Dispatcharr which episodes of a series it has from more than one provider stream.
+        /// Returns an empty map on any failure, which writes the plain single-version files, as a
+        /// failed movie lookup does.
+        /// </summary>
+        private async Task<Dictionary<int, EpisodeVersions>> FetchEpisodeVersionsAsync(
+            Emby.Xtream.Plugin.Client.DispatcharrClient client, PluginConfiguration config,
+            SeriesInfo series, CancellationToken cancellationToken)
+        {
+            var map = new Dictionary<int, EpisodeVersions>();
+            try
+            {
+                var episodes = await client.GetVodSeriesEpisodesAsync(
+                    config.DispatcharrUrl, series.SeriesId, cancellationToken).ConfigureAwait(false);
+                foreach (var ep in episodes)
+                {
+                    if (ep == null || string.IsNullOrEmpty(ep.Uuid) || ep.Providers == null) continue;
+                    var streamIds = ep.Providers
+                        .Where(p => p != null && !string.IsNullOrEmpty(p.StreamId))
+                        .Select(p => p.StreamId)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToList();
+                    if (streamIds.Count > 1)
+                        map[ep.Id] = new EpisodeVersions { Uuid = ep.Uuid, StreamIds = streamIds };
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug("Dispatcharr episode lookup failed for '{0}': {1}", series.Name, ex.Message);
+            }
+            return map;
+        }
+
+        /// <summary>
+        /// The .strm files for one episode: the plain file alone, or, when Dispatcharr has several
+        /// provider streams, the plain file name for the first and " - Version N" for the rest,
+        /// each pointing at Dispatcharr's VOD proxy for that stream. The same naming as movies.
+        /// </summary>
+        internal static List<KeyValuePair<string, string>> BuildEpisodeStrmEntries(
+            string strmPath, string streamUrl, int episodeId,
+            Dictionary<int, EpisodeVersions> versions, string dispatcharrUrl)
+        {
+            var entries = new List<KeyValuePair<string, string>>();
+            EpisodeVersions v;
+            if (versions == null || !versions.TryGetValue(episodeId, out v) || string.IsNullOrEmpty(dispatcharrUrl))
+            {
+                entries.Add(new KeyValuePair<string, string>(strmPath, streamUrl));
+                return entries;
+            }
+
+            var dir = Path.GetDirectoryName(strmPath);
+            var baseName = Path.GetFileNameWithoutExtension(strmPath);
+            for (int vi = 0; vi < v.StreamIds.Count; vi++)
+            {
+                var suffix = vi == 0 ? string.Empty
+                    : string.Format(CultureInfo.InvariantCulture, " - Version {0}", vi + 1);
+                var url = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}/proxy/vod/episode/{1}?stream_id={2}",
+                    dispatcharrUrl, v.Uuid, Uri.EscapeDataString(v.StreamIds[vi]));
+                entries.Add(new KeyValuePair<string, string>(Path.Combine(dir, baseName + suffix + ".strm"), url));
+            }
+            return entries;
+        }
+
+        /// <summary>The Dispatcharr client the movie and series writers ask for extra versions, or null without Dispatcharr.</summary>
         private Emby.Xtream.Plugin.Client.DispatcharrClient CreateDispatcharrVodClient(PluginConfiguration config)
         {
             if (!config.EnableDispatcharr || string.IsNullOrEmpty(config.DispatcharrUrl))

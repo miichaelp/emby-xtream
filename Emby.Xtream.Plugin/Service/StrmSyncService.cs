@@ -145,6 +145,52 @@ namespace Emby.Xtream.Plugin.Service
         private readonly SemaphoreSlim _movieSyncGate = new SemaphoreSlim(1, 1);
         private readonly SemaphoreSlim _seriesSyncGate = new SemaphoreSlim(1, 1);
 
+        // Set while the matching sync runs, so the Stop button can cancel it whoever started it
+        // (the dashboard or a scheduled task). Linked to the caller's token.
+        private CancellationTokenSource _movieStopSource;
+        private CancellationTokenSource _seriesStopSource;
+        private readonly object _stopLock = new object();
+
+        /// <summary>The message a sync stopped by <see cref="StopMovieSync"/> / <see cref="StopSeriesSync"/> reports.</summary>
+        internal const string StoppedReason = "Stopped by user. Files already written were kept; nothing was deleted.";
+
+        /// <summary>
+        /// Asks a running movie sync (or retry of failed items) to stop. Items already started finish,
+        /// no more are begun, and no cleanup or watermark update runs. Returns false when none is running.
+        /// </summary>
+        public bool StopMovieSync() => RequestStop(ref _movieStopSource, "Movie");
+
+        /// <summary>As <see cref="StopMovieSync"/>, for the series sync.</summary>
+        public bool StopSeriesSync() => RequestStop(ref _seriesStopSource, "Series");
+
+        private bool RequestStop(ref CancellationTokenSource source, string kind)
+        {
+            lock (_stopLock)
+            {
+                if (source == null || source.IsCancellationRequested) return false;
+                _logger.Info("{0} sync stop requested", kind);
+                source.Cancel();
+                return true;
+            }
+        }
+
+        /// <summary>Creates the stop source for one run; disposed by <see cref="EndStoppable"/>.</summary>
+        private CancellationTokenSource BeginStoppable(ref CancellationTokenSource field, CancellationToken callerToken)
+        {
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(callerToken);
+            lock (_stopLock) { field = cts; }
+            return cts;
+        }
+
+        private void EndStoppable(ref CancellationTokenSource field, CancellationTokenSource cts)
+        {
+            lock (_stopLock)
+            {
+                if (ReferenceEquals(field, cts)) field = null;
+            }
+            cts.Dispose();
+        }
+
         /// <summary>Lowest usable value for <see cref="PluginConfiguration.SyncParallelism"/>.</summary>
         private const int MinSyncParallelism = 1;
 
@@ -395,13 +441,15 @@ namespace Emby.Xtream.Plugin.Service
                 return false;
             }
 
+            var stop = BeginStoppable(ref _movieStopSource, cancellationToken);
             try
             {
-                await SyncMoviesCoreAsync(config, cancellationToken, saveConfig, taskProgress).ConfigureAwait(false);
+                await SyncMoviesCoreAsync(config, stop.Token, saveConfig, taskProgress).ConfigureAwait(false);
                 return true;
             }
             finally
             {
+                EndStoppable(ref _movieStopSource, stop);
                 _movieSyncGate.Release();
             }
         }
@@ -541,6 +589,7 @@ namespace Emby.Xtream.Plugin.Service
                     var write = new MovieWriteResult();
                     try
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                         var outcome = await WriteMovieAsync(movie, writeContext, write, cancellationToken).ConfigureAwait(false);
                         if (outcome == MovieWriteOutcome.InvalidName)
                         {
@@ -567,6 +616,12 @@ namespace Emby.Xtream.Plugin.Service
                         Interlocked.Increment(ref moviesWrittenCount);
                         Interlocked.Increment(ref _movieProgress.Completed);
                         ReportTaskProgress(_movieProgress, taskProgress);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        // Stopped: not a failure of this movie, so it stays off the failed list.
+                        // The OCE ends Task.WhenAll below, which skips cleanup and the watermark.
+                        throw;
                     }
                     catch (Exception ex)
                     {
@@ -656,6 +711,15 @@ namespace Emby.Xtream.Plugin.Service
                 _logger.Info("Movie STRM sync completed: {0} written, {1} skipped, {2} failed",
                     moviesWrittenCount, _movieProgress.Skipped, _movieProgress.Failed);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _logger.Info("Movie sync stopped after {0} of {1} movies; cleanup and the delta watermark were skipped",
+                    _movieProgress.Completed, _movieProgress.Total);
+                _movieProgress.AbortReason = StoppedReason;
+                _movieProgress.Phase = "Stopped";
+                movieSyncSuccess = false;
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.Error("Movie sync failed: {0}", ex.Message);
@@ -708,13 +772,15 @@ namespace Emby.Xtream.Plugin.Service
                 return false;
             }
 
+            var stop = BeginStoppable(ref _seriesStopSource, cancellationToken);
             try
             {
-                await SyncSeriesCoreAsync(config, cancellationToken, saveConfig, taskProgress).ConfigureAwait(false);
+                await SyncSeriesCoreAsync(config, stop.Token, saveConfig, taskProgress).ConfigureAwait(false);
                 return true;
             }
             finally
             {
+                EndStoppable(ref _seriesStopSource, stop);
                 _seriesSyncGate.Release();
             }
         }
@@ -957,6 +1023,7 @@ namespace Emby.Xtream.Plugin.Service
                     string seriesNameForFailure = null;
                     try
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                         var cleanedName = config.EnableContentNameCleaning
                             ? ContentNameCleaner.CleanContentName(series.Name, config.ContentRemoveTerms)
                             : series.Name;
@@ -1028,6 +1095,10 @@ namespace Emby.Xtream.Plugin.Service
                         try
                         {
                             detail = await FetchSeriesDetailAsync(series.SeriesId, config, cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                        {
+                            throw;
                         }
                         catch (Exception ex)
                         {
@@ -1286,6 +1357,11 @@ namespace Emby.Xtream.Plugin.Service
                         Interlocked.Increment(ref _seriesProgress.Completed);
                         ReportTaskProgress(_seriesProgress, taskProgress);
                     }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        // Stopped, as for movies: not recorded as a failed series.
+                        throw;
+                    }
                     catch (Exception ex)
                     {
                         reportedSeriesIds[series.SeriesId] = 0;
@@ -1401,8 +1477,19 @@ namespace Emby.Xtream.Plugin.Service
             }
             catch (Exception ex)
             {
-                _logger.Error("Series sync failed: {0}", ex.Message);
-                _seriesProgress.Phase = "Failed: " + ex.Message;
+                var stopped = ex is OperationCanceledException && cancellationToken.IsCancellationRequested;
+                if (stopped)
+                {
+                    _logger.Info("Series sync stopped after {0} of {1} series; cleanup, the delta watermark and episode hashes were skipped",
+                        _seriesProgress.Completed, _seriesProgress.Total);
+                    _seriesProgress.AbortReason = StoppedReason;
+                    _seriesProgress.Phase = "Stopped";
+                }
+                else
+                {
+                    _logger.Error("Series sync failed: {0}", ex.Message);
+                    _seriesProgress.Phase = "Failed: " + ex.Message;
+                }
                 seriesSyncSuccess = false;
 
                 // A run that stopped part-way may have cleared the failed list before reaching
@@ -1699,6 +1786,11 @@ namespace Emby.Xtream.Plugin.Service
                         }
                     }
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // Stopped: falling through would replace the movie's versions with one plain file.
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.Debug("Dispatcharr VOD lookup failed for '{0}': {1}", movie.Name, ex.Message);
@@ -1783,6 +1875,9 @@ namespace Emby.Xtream.Plugin.Service
             // throws when ApplicationPaths is not initialised yet, so both sit inside.
             var seriesGateHeld = false;
             var retryStarted = false;
+            // Either Stop button stops a retry: it holds both gates when it has series to retry.
+            var stop = BeginStoppable(ref _movieStopSource, cancellationToken);
+            cancellationToken = stop.Token;
             try
             {
                 // A retry batch can contain series items, and those write episodes under Shows.
@@ -1792,7 +1887,11 @@ namespace Emby.Xtream.Plugin.Service
                 if (items.Any(i => i.ItemType == "Series"))
                 {
                     seriesGateHeld = await _seriesSyncGate.WaitAsync(0, cancellationToken).ConfigureAwait(false);
-                    if (!seriesGateHeld)
+                    if (seriesGateHeld)
+                    {
+                        lock (_stopLock) { _seriesStopSource = stop; }
+                    }
+                    else
                     {
                         _logger.Warn("Retry requested while a series sync is already running — ignoring the duplicate request");
                         return false;
@@ -1915,8 +2014,14 @@ namespace Emby.Xtream.Plugin.Service
                 if (retryStarted)
                 {
                     _movieProgress.IsRunning = false;
-                    _movieProgress.Phase = "Retry complete";
+                    _movieProgress.Phase = stop.IsCancellationRequested ? "Stopped" : "Retry complete";
                 }
+
+                lock (_stopLock)
+                {
+                    if (ReferenceEquals(_seriesStopSource, stop)) _seriesStopSource = null;
+                }
+                EndStoppable(ref _movieStopSource, stop);
 
                 if (seriesGateHeld)
                 {

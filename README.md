@@ -113,6 +113,7 @@ When a new version is out, the plugin settings show an update banner. Click **Up
 - Only files the plugin wrote itself are deleted. Your own files in the same folder stay.
 - Runs on a schedule (every N hours or daily at a set time) or by hand.
 - **Retry Failed Items** on the Dashboard retries the titles that failed in the last sync.
+- **Stop Sync** (on the Dashboard while a sync runs, and next to **Sync Movies Now** / **Sync Series Now**) stops a running sync, including a scheduled one. Files already written are kept, nothing is removed, and the next sync picks up where it left off.
 
 ### Dispatcharr
 

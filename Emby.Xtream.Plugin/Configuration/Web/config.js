@@ -315,6 +315,21 @@ function (BaseView, loading) {
             view.querySelector('.orphanThresholdContainer').style.display = this.checked ? '' : 'none';
         });
 
+        // Stop buttons. Stopping keeps what was already written and skips cleanup.
+        view.querySelector('.btnStopMovies').addEventListener('click', function () {
+            stopSync(view, ['Movies']);
+        });
+
+        view.querySelector('.btnStopSeries').addEventListener('click', function () {
+            stopSync(view, ['Series']);
+        });
+
+        view.querySelector('.btnDashboardStopSync').addEventListener('click', function () {
+            // Also keeps "Sync Movies & Series" from going on to series after movies stop.
+            dashboardStopRequested = true;
+            stopSync(view, ['Movies', 'Series']);
+        });
+
         // Dashboard sync all button
         view.querySelector('.btnDashboardSyncAll').addEventListener('click', function () {
             saveConfig(self, function () { dashboardSyncAll(self); });
@@ -1870,11 +1885,38 @@ function updateEpgVisibility(view) {
         return intervalId;
     }
 
+    // Asks the server to stop the given syncs ('Movies' and/or 'Series'). The running sync's own
+    // request then finishes and reports "stopped"; this only disables the buttons meanwhile.
+    function stopSync(view, types) {
+        types.forEach(function (type) {
+            var btn = view.querySelector(type === 'Movies' ? '.btnStopMovies' : '.btnStopSeries');
+            if (btn) btn.disabled = true;
+        });
+        var dashBtn = view.querySelector('.btnDashboardStopSync');
+        if (types.length > 1 && dashBtn) dashBtn.disabled = true;
+
+        return Promise.all(types.map(function (type) {
+            return ApiClient.ajax({
+                type: 'POST',
+                url: ApiClient.getUrl('XtreamTuner/Sync/' + type + '/Stop'),
+                dataType: 'json'
+            }).catch(function () { return null; });
+        }));
+    }
+
+    function showStopButton(view, type, visible) {
+        var btn = view.querySelector(type === 'Movies' ? '.btnStopMovies' : '.btnStopSeries');
+        if (!btn) return;
+        btn.style.display = visible ? '' : 'none';
+        btn.disabled = false;
+    }
+
     function syncMovies(view) {
         var resultEl = view.querySelector('.syncMoviesResult');
         var btn = view.querySelector('.btnSyncMovies');
         btn.disabled = true;
         resultEl.innerHTML = '<span style="opacity:0.5;">Starting movie sync...</span>';
+        showStopButton(view, 'Movies', true);
 
         var pollId = pollSyncProgress(view, 'Movies');
         var apiUrl = ApiClient.getUrl('XtreamTuner/Sync/Movies');
@@ -1886,6 +1928,7 @@ function updateEpgVisibility(view) {
         }).then(function (result) {
             clearInterval(pollId);
             btn.disabled = false;
+            showStopButton(view, 'Movies', false);
             var msg = result.Success
                 ? result.Message + ' (Total: ' + result.Total + ', Skipped: ' + result.Skipped + ', Failed: ' + result.Failed + ')'
                 : result.Message;
@@ -1893,6 +1936,7 @@ function updateEpgVisibility(view) {
         }).catch(function () {
             clearInterval(pollId);
             btn.disabled = false;
+            showStopButton(view, 'Movies', false);
             setPillResult(resultEl, false, 'Movie sync request failed. Check server logs for details.');
         });
     }
@@ -1902,6 +1946,7 @@ function updateEpgVisibility(view) {
         var btn = view.querySelector('.btnSyncSeries');
         btn.disabled = true;
         resultEl.innerHTML = '<span style="opacity:0.5;">Starting series sync...</span>';
+        showStopButton(view, 'Series', true);
 
         var pollId = pollSyncProgress(view, 'Series');
         var apiUrl = ApiClient.getUrl('XtreamTuner/Sync/Series');
@@ -1913,6 +1958,7 @@ function updateEpgVisibility(view) {
         }).then(function (result) {
             clearInterval(pollId);
             btn.disabled = false;
+            showStopButton(view, 'Series', false);
             var msg = result.Success
                 ? result.Message + ' (Total: ' + result.Total + ', Skipped: ' + result.Skipped + ', Failed: ' + result.Failed + ')'
                 : result.Message;
@@ -1920,6 +1966,7 @@ function updateEpgVisibility(view) {
         }).catch(function () {
             clearInterval(pollId);
             btn.disabled = false;
+            showStopButton(view, 'Series', false);
             setPillResult(resultEl, false, 'Series sync request failed. Check server logs for details.');
         });
     }
@@ -2000,6 +2047,8 @@ function updateEpgVisibility(view) {
     // ---- Dashboard ----
 
     var dashboardPollId = null;
+    // Set by the dashboard's Stop button so "Sync Movies & Series" does not start series afterwards.
+    var dashboardStopRequested = false;
 
     function loadDashboard(view) {
         var apiUrl = ApiClient.getUrl('XtreamTuner/Dashboard');
@@ -2517,6 +2566,7 @@ function updateEpgVisibility(view) {
         stopDashboardProgressPolling();
         var progressCard = view.querySelector('.dashboardLiveProgress');
         progressCard.style.display = 'block';
+        view.querySelector('.btnDashboardStopSync').disabled = false;
 
         dashboardPollId = setInterval(function () {
             var apiUrl = ApiClient.getUrl('XtreamTuner/Sync/Status');
@@ -2569,6 +2619,7 @@ function updateEpgVisibility(view) {
                 return;
             }
 
+            dashboardStopRequested = false;
             startDashboardProgressPolling(view);
 
             var movieUrl = ApiClient.getUrl('XtreamTuner/Sync/Movies');
@@ -2583,10 +2634,10 @@ function updateEpgVisibility(view) {
                 if (movieResult) {
                     movieMsg = movieResult.Success
                         ? 'Movies: ' + movieResult.Total + ' total, ' + movieResult.Skipped + ' skipped, ' + movieResult.Failed + ' failed'
-                        : 'Movies failed: ' + movieResult.Message;
+                        : 'Movies: ' + movieResult.Message;
                 }
 
-                if (doSeries) {
+                if (doSeries && !dashboardStopRequested) {
                     var prefix = movieMsg ? escapeHtml(movieMsg) + ' \u2014 ' : '';
                     resultEl.innerHTML = '<span style="opacity:0.5;">' + prefix + 'Starting series sync...</span>';
 
@@ -2597,7 +2648,7 @@ function updateEpgVisibility(view) {
 
                         var seriesMsg = seriesResult.Success
                             ? 'Series: ' + seriesResult.Total + ' total, ' + seriesResult.Skipped + ' skipped, ' + seriesResult.Failed + ' failed'
-                            : 'Series failed: ' + seriesResult.Message;
+                            : 'Series: ' + seriesResult.Message;
 
                         var parts = [];
                         if (movieMsg) parts.push(movieMsg);

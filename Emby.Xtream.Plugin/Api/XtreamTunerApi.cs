@@ -82,6 +82,18 @@ namespace Emby.Xtream.Plugin.Api
     }
 
     [Authenticated(Roles = "Admin")]
+    [Route("/XtreamTuner/Sync/Movies/Stop", "POST", Summary = "Stops a running movie sync or retry of failed items")]
+    public class StopMovieSync : IReturn<SyncResult>
+    {
+    }
+
+    [Authenticated(Roles = "Admin")]
+    [Route("/XtreamTuner/Sync/Series/Stop", "POST", Summary = "Stops a running series sync")]
+    public class StopSeriesSync : IReturn<SyncResult>
+    {
+    }
+
+    [Authenticated(Roles = "Admin")]
     [Route("/XtreamTuner/Sync/Status", "GET", Summary = "Gets current sync progress")]
     public class GetSyncStatus : IReturn<SyncStatusResult>
     {
@@ -588,6 +600,12 @@ namespace Emby.Xtream.Plugin.Api
                     result.Failed = progress.Failed;
                 }
             }
+            catch (OperationCanceledException)
+            {
+                // The Stop button: the service already logged it and kept what was written.
+                result.Success = false;
+                result.Message = "Movie sync stopped. Files already written were kept; nothing was deleted.";
+            }
             catch (Exception ex)
             {
                 result.Success = false;
@@ -652,6 +670,12 @@ namespace Emby.Xtream.Plugin.Api
                     result.Failed = progress.Failed;
                 }
             }
+            catch (OperationCanceledException)
+            {
+                // The Stop button: the service already logged it and kept what was written.
+                result.Success = false;
+                result.Message = "Series sync stopped. Files already written were kept; nothing was deleted.";
+            }
             catch (Exception ex)
             {
                 result.Success = false;
@@ -659,6 +683,26 @@ namespace Emby.Xtream.Plugin.Api
             }
 
             return result;
+        }
+
+        public object Post(StopMovieSync request)
+        {
+            var stopped = Plugin.Instance.StrmSyncService.StopMovieSync();
+            return new SyncResult
+            {
+                Success = stopped,
+                Message = stopped ? "Stopping movie sync..." : "No movie sync is running.",
+            };
+        }
+
+        public object Post(StopSeriesSync request)
+        {
+            var stopped = Plugin.Instance.StrmSyncService.StopSeriesSync();
+            return new SyncResult
+            {
+                Success = stopped,
+                Message = stopped ? "Stopping series sync..." : "No series sync is running.",
+            };
         }
 
         public object Get(GetSyncStatus request)

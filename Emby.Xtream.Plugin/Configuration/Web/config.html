@@ -363,6 +363,10 @@
                                 <div class="dashboardProgressBarFill dashboard-progress-bar-fill" style="width:0%;"></div>
                             </div>
                             <div class="dashboardProgressDetail" style="opacity:0.7; margin-top:0.4em; font-size:0.9em;"></div>
+                            <button class="btnDashboardStopSync raised" is="emby-button" type="button"
+                                    style="margin-top:0.8em; background:#c0392b;">
+                                <span>Stop Sync</span>
+                            </button>
                         </div>
                     </div>
 
@@ -815,6 +819,10 @@
                             <button class="btnSyncMovies raised button-submit block" is="emby-button" type="button">
                                 <span>Sync Movies Now</span>
                             </button>
+                            <button class="btnStopMovies raised block" is="emby-button" type="button"
+                                    style="display:none; margin-top:0.5em; background:#c0392b;">
+                                <span>Stop Movie Sync</span>
+                            </button>
                             <div class="syncMoviesResult" style="margin-top:0.5em;"></div>
                         </div>
 
@@ -942,6 +950,10 @@
                         <div style="margin-top:1em;">
                             <button class="btnSyncSeries raised button-submit block" is="emby-button" type="button">
                                 <span>Sync Series Now</span>
+                            </button>
+                            <button class="btnStopSeries raised block" is="emby-button" type="button"
+                                    style="display:none; margin-top:0.5em; background:#c0392b;">
+                                <span>Stop Series Sync</span>
                             </button>
                             <div class="syncSeriesResult" style="margin-top:0.5em;"></div>
                         </div>

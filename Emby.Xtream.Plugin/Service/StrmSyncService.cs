@@ -1254,9 +1254,25 @@ namespace Emby.Xtream.Plugin.Service
                         var episodeVersions = dispatcharrVodClient == null
                             ? new Dictionary<int, EpisodeVersions>()
                             : await FetchEpisodeVersionsAsync(dispatcharrVodClient, config, series, cancellationToken).ConfigureAwait(false);
+                        var versionsUnknown = episodeVersions == null;
+                        if (versionsUnknown)
+                        {
+                            episodeVersions = new Dictionary<int, EpisodeVersions>();
+                        }
                         var currentEpHash = ComputeSeriesEpisodeHash(detail.Episodes, episodeVersions);
                         var epHashKey = series.SeriesId.ToString(CultureInfo.InvariantCulture);
-                        updatedHashes[epHashKey] = currentEpHash;
+                        if (versionsUnknown)
+                        {
+                            // Written without versions because Dispatcharr did not answer. Storing
+                            // this hash would make the next sync skip the series as unchanged and
+                            // never add the versions; with none stored it is processed again.
+                            // Already explained by FetchEpisodeVersionsAsync's warning.
+                            reportedSeriesIds[series.SeriesId] = 0;
+                        }
+                        else
+                        {
+                            updatedHashes[epHashKey] = currentEpHash;
+                        }
 
                         string previousHash;
                         if (config.SmartSkipExisting
@@ -1588,8 +1604,8 @@ namespace Emby.Xtream.Plugin.Service
 
         /// <summary>
         /// Asks Dispatcharr which episodes of a series it has from more than one provider stream.
-        /// Returns an empty map on any failure, which writes the plain single-version files, as a
-        /// failed movie lookup does.
+        /// Returns null when Dispatcharr could not say: the caller writes the plain single-version
+        /// files, as a failed movie lookup does, and stores no episode hash so the next sync asks again.
         /// </summary>
         private async Task<Dictionary<int, EpisodeVersions>> FetchEpisodeVersionsAsync(
             Emby.Xtream.Plugin.Client.DispatcharrClient client, PluginConfiguration config,
@@ -1635,7 +1651,8 @@ namespace Emby.Xtream.Plugin.Service
             }
             catch (Exception ex)
             {
-                _logger.Debug("Dispatcharr episode lookup failed for '{0}': {1}", series.Name, ex.Message);
+                _logger.Warn("Dispatcharr episode versions unavailable for '{0}', writing one file per episode: {1}", series.Name, ex.Message);
+                return null;
             }
             return map;
         }

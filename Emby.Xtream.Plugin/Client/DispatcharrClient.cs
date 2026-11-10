@@ -392,9 +392,12 @@ namespace Emby.Xtream.Plugin.Client
         public async Task<List<DispatcharrVodEpisode>> GetVodSeriesEpisodesAsync(
             string baseUrl, int xtreamSeriesId, CancellationToken cancellationToken)
         {
+            // No retries: when Dispatcharr times out building this (a 504 from its proxy), asking
+            // again three more times only adds to the load that made it time out. The caller
+            // falls back to one file per episode.
             var json = await GetAuthenticatedAsync(
                 string.Format(CultureInfo.InvariantCulture, "{0}/api/vod/series/{1}/episodes/", baseUrl, xtreamSeriesId),
-                baseUrl, cancellationToken).ConfigureAwait(false);
+                baseUrl, cancellationToken, maxRetries: 0).ConfigureAwait(false);
             if (json == null) return new List<DispatcharrVodEpisode>();
             return JsonSerializer.Deserialize<List<DispatcharrVodEpisode>>(json, JsonOptions)
                    ?? new List<DispatcharrVodEpisode>();
@@ -598,10 +601,9 @@ namespace Emby.Xtream.Plugin.Client
         }
 
         private async Task<string> GetAuthenticatedAsync(
-            string url, string baseUrl, CancellationToken cancellationToken)
+            string url, string baseUrl, CancellationToken cancellationToken, int maxRetries = 3)
         {
             int retryCount = 0;
-            int maxRetries = 3;
             int currentDelay = 1000;
 
             while (true)

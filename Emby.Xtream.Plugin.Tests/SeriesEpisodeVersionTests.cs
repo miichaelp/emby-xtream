@@ -90,6 +90,32 @@ namespace Emby.Xtream.Plugin.Tests
         }
 
         [Fact]
+        public async Task EpisodeListTimesOut_IsNotRetried()
+        {
+            var svc = ServiceWithSeries();
+            Handler.RespondWith("api/vod/series/1/providers/", "[{\"id\":1},{\"id\":2}]");
+            Handler.RespondWith("api/vod/series/1/episodes/", "", System.Net.HttpStatusCode.GatewayTimeout);
+
+            await svc.SyncSeriesAsync(DispatcharrConfig(), None, SaveConfig);
+
+            Assert.Single(Handler.ReceivedUrls, u => u.Contains("/episodes/"));
+            Assert.Equal("http://fake-xtream/series/user/pass/101.mp4", File.ReadAllText(Plain));
+        }
+
+        [Fact]
+        public async Task EpisodeListFails_StoresNoHash_SoTheNextSyncAsksAgain()
+        {
+            var config = DispatcharrConfig();
+            var svc = ServiceWithSeries();
+            Handler.RespondWith("api/vod/series/1/providers/", "[{\"id\":1},{\"id\":2}]");
+            Handler.RespondWith("api/vod/series/1/episodes/", "", System.Net.HttpStatusCode.GatewayTimeout);
+
+            await svc.SyncSeriesAsync(config, None, SaveConfig);
+
+            Assert.False(StrmSyncService.DeserializeEpisodeHashes(config.SeriesEpisodeHashesJson).ContainsKey("1"));
+        }
+
+        [Fact]
         public void EpisodeHash_WithoutVersions_IsUnchanged()
         {
             var episodes = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<Emby.Xtream.Plugin.Client.Models.EpisodeInfo>>

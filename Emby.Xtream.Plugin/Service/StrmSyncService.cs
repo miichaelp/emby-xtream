@@ -162,6 +162,10 @@ namespace Emby.Xtream.Plugin.Service
         private CancellationTokenSource _seriesStopSource;
         private readonly object _stopLock = new object();
 
+        // Dispatcharr's episode list is expensive to build (see GetVodSeriesEpisodesAsync), so
+        // only one is requested at a time, whatever the sync's parallelism.
+        private readonly SemaphoreSlim _dispatcharrEpisodeListGate = new SemaphoreSlim(1, 1);
+
         /// <summary>The message a sync stopped by <see cref="StopMovieSync"/> / <see cref="StopSeriesSync"/> reports.</summary>
         internal const string StoppedReason = "Stopped by user. Files already written were kept; nothing was deleted.";
 
@@ -1594,8 +1598,25 @@ namespace Emby.Xtream.Plugin.Service
             var map = new Dictionary<int, EpisodeVersions>();
             try
             {
-                var episodes = await client.GetVodSeriesEpisodesAsync(
+                // An episode can only have a second version when the series has a second provider.
+                // Most have one, and for those this cheap request is all that is asked.
+                var seriesProviders = await client.GetVodSeriesProvidersAsync(
                     config.DispatcharrUrl, series.SeriesId, cancellationToken).ConfigureAwait(false);
+                if (seriesProviders.Count < 2)
+                    return map;
+
+                List<Emby.Xtream.Plugin.Client.Models.DispatcharrVodEpisode> episodes;
+                await _dispatcharrEpisodeListGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    episodes = await client.GetVodSeriesEpisodesAsync(
+                        config.DispatcharrUrl, series.SeriesId, cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _dispatcharrEpisodeListGate.Release();
+                }
+
                 foreach (var ep in episodes)
                 {
                     if (ep == null || string.IsNullOrEmpty(ep.Uuid) || ep.Providers == null) continue;

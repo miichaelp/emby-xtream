@@ -4,7 +4,7 @@
 **Status**: Accepted
 **Affects**: `StrmSyncService.SyncSeriesCoreAsync()`, `StrmSyncService.FetchEpisodeVersionsAsync()`,
 `StrmSyncService.BuildEpisodeStrmEntries()`, `StrmSyncService.ComputeSeriesEpisodeHash()`,
-`DispatcharrClient.GetVodSeriesEpisodesAsync()`
+`DispatcharrClient.GetVodSeriesEpisodesAsync()`, `DispatcharrClient.GetVodSeriesProvidersAsync()`
 
 ---
 
@@ -35,6 +35,15 @@ One request per series returns every episode with its active provider relations 
 each with a `stream_id`). The series ID is the one Dispatcharr's Xtream `get_series` hands out,
 and the episode `id` matches the one in `get_series_info`.
 
+### Cost of the episode list
+
+`/api/vod/series/{id}/episodes/` nests a full `M3UAccountSerializer` (profiles, filters,
+expirations and every channel group of the account) inside every episode relation, plus the
+series again with an `episode_count` query. Asked for every series, ten at a time, it stalled
+Dispatcharr during a first sync. So the sync first asks `/api/vod/series/{id}/providers/`, one
+entry per provider account, and only asks for the episode list when there are two or more. The
+episode list requests then go one at a time, whatever the sync's parallelism.
+
 ## Decision
 
 - After the series detail is fetched (so unchanged series skipped by the watermark or smart skip
@@ -53,4 +62,5 @@ and the episode `id` matches the one in `get_series_info`.
   plugin's, and orphan cleanup removes a `- Version N` file when Dispatcharr drops that stream.
 - Shows already on disk whose series is skipped before the detail fetch (watermark + smart skip)
   only pick up versions when the provider changes them or after a full re-sync, the same as movies.
-- One extra Dispatcharr request per processed series.
+- One cheap extra Dispatcharr request per processed series, and one expensive one, serialised,
+  per series with more than one provider.

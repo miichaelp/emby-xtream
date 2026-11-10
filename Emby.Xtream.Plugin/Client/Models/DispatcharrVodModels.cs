@@ -19,6 +19,12 @@ namespace Emby.Xtream.Plugin.Client.Models
         public string Name { get; set; }
     }
 
+    /// <summary>One provider relation of <c>/api/vod/series/{id}/providers/</c>. Only counted.</summary>
+    public class DispatcharrVodSeriesProvider
+    {
+        public int Id { get; set; }
+    }
+
     /// <summary>One episode of <c>/api/vod/series/{id}/episodes/</c>, with every provider stream that carries it.</summary>
     public class DispatcharrVodEpisode
     {

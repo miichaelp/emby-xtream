@@ -39,6 +39,7 @@ namespace Emby.Xtream.Plugin.Tests
         public async Task EpisodeWithTwoProviders_WritesEveryVersion()
         {
             var svc = ServiceWithSeries();
+            Handler.RespondWith("api/vod/series/1/providers/", "[{\"id\":1},{\"id\":2}]");
             Handler.RespondWith("api/vod/series/1/episodes/",
                 "[{\"id\":101,\"uuid\":\"ep-uuid\",\"providers\":[{\"id\":1,\"stream_id\":\"501\"},{\"id\":2,\"stream_id\":502}]}]");
 
@@ -52,6 +53,7 @@ namespace Emby.Xtream.Plugin.Tests
         public async Task EpisodeWithOneProvider_KeepsThePlainXtreamFile()
         {
             var svc = ServiceWithSeries();
+            Handler.RespondWith("api/vod/series/1/providers/", "[{\"id\":1},{\"id\":2}]");
             Handler.RespondWith("api/vod/series/1/episodes/",
                 "[{\"id\":101,\"uuid\":\"ep-uuid\",\"providers\":[{\"id\":1,\"stream_id\":\"501\"}]}]");
 
@@ -65,10 +67,24 @@ namespace Emby.Xtream.Plugin.Tests
         public async Task DispatcharrLookupFails_WritesThePlainFile()
         {
             var svc = ServiceWithSeries();
+            Handler.RespondWith("api/vod/series/1/providers/", "[{\"id\":1},{\"id\":2}]");
             Handler.RespondWith("api/vod/series/1/episodes/", "not json");
 
             await svc.SyncSeriesAsync(DispatcharrConfig(), None, SaveConfig);
 
+            Assert.Equal("http://fake-xtream/series/user/pass/101.mp4", File.ReadAllText(Plain));
+            Assert.False(File.Exists(Second));
+        }
+
+        [Fact]
+        public async Task SeriesWithOneProvider_NeverAsksForTheEpisodeList()
+        {
+            var svc = ServiceWithSeries();
+            Handler.RespondWith("api/vod/series/1/providers/", "[{\"id\":1}]");
+
+            await svc.SyncSeriesAsync(DispatcharrConfig(), None, SaveConfig);
+
+            Assert.DoesNotContain(Handler.ReceivedUrls, u => u.Contains("/episodes/"));
             Assert.Equal("http://fake-xtream/series/user/pass/101.mp4", File.ReadAllText(Plain));
             Assert.False(File.Exists(Second));
         }

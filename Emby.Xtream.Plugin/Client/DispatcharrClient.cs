@@ -369,7 +369,24 @@ namespace Emby.Xtream.Plugin.Client
         }
 
         /// <summary>
-        /// Returns a series' episodes with their provider streams, in one request. The series ID is
+        /// Returns the provider relations of a series. Cheap: one entry per provider account,
+        /// unlike the episode list, which repeats the whole account for every episode.
+        /// </summary>
+        public async Task<List<DispatcharrVodSeriesProvider>> GetVodSeriesProvidersAsync(
+            string baseUrl, int xtreamSeriesId, CancellationToken cancellationToken)
+        {
+            var json = await GetAuthenticatedAsync(
+                string.Format(CultureInfo.InvariantCulture, "{0}/api/vod/series/{1}/providers/", baseUrl, xtreamSeriesId),
+                baseUrl, cancellationToken).ConfigureAwait(false);
+            if (json == null) return new List<DispatcharrVodSeriesProvider>();
+            return JsonSerializer.Deserialize<List<DispatcharrVodSeriesProvider>>(json, JsonOptions)
+                   ?? new List<DispatcharrVodSeriesProvider>();
+        }
+
+        /// <summary>
+        /// Returns a series' episodes with their provider streams, in one request. Expensive on
+        /// Dispatcharr's side (it serialises the full M3U account, channel groups included, for
+        /// every episode relation), so callers check <see cref="GetVodSeriesProvidersAsync"/> first. The series ID is
         /// the one Dispatcharr's Xtream <c>get_series</c> hands out.
         /// </summary>
         public async Task<List<DispatcharrVodEpisode>> GetVodSeriesEpisodesAsync(

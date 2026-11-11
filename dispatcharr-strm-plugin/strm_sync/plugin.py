@@ -59,7 +59,12 @@ class Plugin:
         if progress.get("running"):
             return {"status": "error", "message": "A sync is already running."}
         tasks.queue_sync(kinds, trigger="manual", only=only)
-        return {"status": "queued", "message": f"Sync started. Follow it on the dashboard: {runtime.DASHBOARD_URL}"}
+        return {"status": "queued", "message": "Sync started. Progress: " + self._dashboard_address(settings)
+                + " (also the Docs link on this card, and the Status button)."}
+
+    @staticmethod
+    def _dashboard_address(settings):
+        return (settings.base_url or "") + runtime.DASHBOARD_URL
 
     def _do_sync_all(self, params):
         return self._start(tasks.ALL_KINDS)

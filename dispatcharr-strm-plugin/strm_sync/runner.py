@@ -26,6 +26,25 @@ def load_plugin_package():
     return package
 
 
+def log_to_container(log):
+    """Also writes the sync's log lines to the container's own output.
+
+    This process is detached, so its stdout goes to runner.log. The container's
+    output is PID 1's stdout; writing there makes the sync show up in
+    `docker logs` and Dispatcharr's log view next to everything else.
+    """
+    import logging
+
+    try:
+        stream = open("/proc/1/fd/1", "a", buffering=1, encoding="utf-8")
+    except OSError:
+        return
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s STRM Sync: %(message)s"))
+    log.addHandler(handler)
+    log.propagate = False  # Django's console logging would print the same line to runner.log again
+
+
 def main(argv):
     project_dir, job = argv[1], json.loads(argv[2])
     if project_dir not in sys.path:
@@ -44,6 +63,8 @@ def main(argv):
     django.setup()
 
     load_plugin_package()
+    runtime = importlib.import_module(PACKAGE + ".runtime")
+    log_to_container(runtime.setup_logging())
     tasks = importlib.import_module(PACKAGE + ".tasks")
     delay = float(job.get("delay") or 0)
     if delay > 0:

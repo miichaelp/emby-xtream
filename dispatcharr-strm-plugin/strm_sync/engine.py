@@ -122,6 +122,7 @@ class Engine:
         self.removed = []
         self.added_titles = []
         self.stopped = False
+        self.counters_fetched = 0
 
     # ---- helpers -----------------------------------------------------------------
 
@@ -256,14 +257,14 @@ class Engine:
 
     # ---- series ------------------------------------------------------------------
 
-    def fetch_episode_lists(self, state, only_ids=None):
-        """Ask the provider for the episodes of shows Dispatcharr has not loaded yet.
+    def _pending_episode_lists(self, state, only_ids):
+        """{series id: [relations to fetch]} for shows whose episode list has to come from the provider.
 
-        Dispatcharr only loads a show's episodes when someone opens it, so a
-        fresh catalogue has shows without episodes. Returns how many were fetched.
+        Dispatcharr only loads a show's episodes when someone opens it, so a fresh
+        catalogue has shows without episodes.
         """
         if not self.s.fetch_episodes:
-            return 0
+            return {}
         known = state.setdefault("series_last_modified", {})
         pending = self.source.series_needing_episodes(known, only_ids)
         if self.s.episode_fetch_limit and len(pending) > self.s.episode_fetch_limit:
@@ -271,47 +272,50 @@ class Engine:
                 f"{len(pending)} shows need their episode list; fetching {self.s.episode_fetch_limit} this run "
                 "(the limit in the plugin settings). The rest follow on later syncs.")
             pending = pending[: self.s.episode_fetch_limit]
-        if not pending:
-            return 0
+        by_series = {}
+        for item in pending:
+            by_series.setdefault(item["series_id"], []).append(item)
+        if by_series:
+            self.log.info("%d shows need their episode list from the provider; each is fetched just "
+                          "before it is written", len(by_series))
+        return by_series
 
-        self.log.info("Fetching episode lists for %d shows", len(pending))
-        fetched = 0
-        counters = {"failed": 0, "skipped": 0}
-        for index, item in enumerate(pending, 1):
-            if self._stop_requested():
-                break
-            self.control.progress("series", "Fetching episode lists", index - 1, len(pending), counters)
+    def _fetch_lists(self, items, known, counters):
+        """Fetches one show's episode lists. True when at least one provider answered."""
+        answered = False
+        for item in items:
+            if self.counters_fetched and self.s.episode_fetch_delay_ms:
+                self.sleep(self.s.episode_fetch_delay_ms / 1000.0)
+            self.counters_fetched += 1
             try:
                 ok = self.source.fetch_episodes(item)
             except Exception as exc:
                 ok = False
                 self.log.warning("Episode list for '%s' failed: %s", item.get("name"), exc)
             if ok:
-                fetched += 1
+                answered = True
                 known[str(item["relation_id"])] = item.get("last_modified") or ""
             else:
-                counters["failed"] += 1
+                counters["lists_failed"] += 1
                 self.failed_items.append({
                     "kind": "series",
                     "id": item.get("series_id"),
                     "name": item.get("name") or "",
                     "error": "The provider returned no episode list",
                 })
-            if self.s.episode_fetch_delay_ms and index < len(pending):
-                self.sleep(self.s.episode_fetch_delay_ms / 1000.0)
-        self.control.progress("series", "Fetching episode lists", len(pending), len(pending), counters)
-        self.log.info("Episode lists: %d fetched, %d without an answer", fetched, counters["failed"])
-        return fetched
+        return answered
 
     def sync_series(self, state, only_ids=None):
         stats = new_stats()
         episodes = {"total": 0, "files": 0, "files_added": 0}
         written, nfos, used = set(), set(), {}
+        counters = {"lists_failed": 0}
+        self.counters_fetched = 0
 
-        self.fetch_episode_lists(state, only_ids)
-
+        pending = self._pending_episode_lists(state, only_ids)
+        known = state.setdefault("series_last_modified", {})
         total = self.source.count_series(only_ids)
-        self.control.progress("series", "Writing series", 0, total, stats)
+        self.control.progress("series", "Writing series", 0, total, stats, force=True)
         self.log.info("Series sync started: %d shows in Dispatcharr", total)
         complete = True
         try:
@@ -321,6 +325,13 @@ class Engine:
                         break
                     stats["total"] += 1
                     try:
+                        items = pending.pop(show["id"], None)
+                        if items:
+                            self.control.progress(
+                                "series", f"Fetching episodes: {show.get('name')}", stats["total"] - 1, total, stats)
+                            if self._fetch_lists(items, known, counters):
+                                # Read the show again: its episodes were added just now.
+                                show = next(iter(self.source.iter_series([show["id"]])), show)
                         self._write_show(show, written, nfos, used, stats, episodes)
                     except Exception as exc:
                         self._fail("series", show, exc, stats)
@@ -330,6 +341,9 @@ class Engine:
             self.warnings.append(f"Reading series from Dispatcharr failed: {exc}")
             self.log.exception("Reading series from Dispatcharr failed")
 
+        if self.counters_fetched:
+            self.log.info("Episode lists: %d asked for, %d without an answer",
+                          self.counters_fetched, counters["lists_failed"])
         self._cleanup("series", SHOWS_DIR, written, nfos, stats, complete and only_ids is None)
         stats["episodes"] = episodes["total"]
         self.log.info(

@@ -59,6 +59,7 @@ def _queue(job):
 
 
 def queue_sync(kinds=ALL_KINDS, trigger="manual", only=None, countdown=0):
+    runtime.setup_logging().info("Starting a sync (%s): %s", trigger, ", ".join(kinds))
     _queue({"job": "sync", "kinds": list(kinds), "trigger": trigger, "only": only, "delay": countdown})
 
 

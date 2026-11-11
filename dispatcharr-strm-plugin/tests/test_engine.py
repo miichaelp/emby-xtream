@@ -214,18 +214,53 @@ def test_retry_only_writes_the_given_ids_and_never_cleans_up(tmp_path):
     assert len(tree(tmp_path)) == 3
 
 
-def test_episode_lists_are_fetched_with_a_limit_and_failures_recorded(tmp_path):
+class LoadingSource(FakeSource):
+    """Shows start without episodes; fetching one "loads" them, as Dispatcharr does."""
+
+    def __init__(self, shows, pending, loaded):
+        super().__init__(shows=shows, pending=pending)
+        self.loaded = loaded          # series id -> episodes it gets once fetched
+        self.order = []
+
+    def iter_series(self, only_ids=None):
+        for item in self._pick(self.shows, only_ids):
+            self.order.append(("read", item["id"]))
+            yield item
+
+    def fetch_episodes(self, item):
+        self.order.append(("fetch", item["series_id"]))
+        ok = super().fetch_episodes(item)
+        if ok is True and item["series_id"] in self.loaded:
+            show = next(s for s in self.shows if s["id"] == item["series_id"])
+            show["episodes"] = self.loaded[item["series_id"]]
+        return ok
+
+
+def test_episode_lists_are_fetched_just_before_each_show_is_written(tmp_path):
+    shows = [show(i, f"Show {i}", []) for i in range(1, 6)]
     pending = [{"relation_id": i, "series_id": i, "name": f"Show {i}", "last_modified": str(1000 + i)}
                for i in range(1, 6)]
-    src = FakeSource(shows=[show(1, "Show 1", [episode(1, 1, 1)])], pending=pending)
+    src = LoadingSource(shows, pending, {i: [episode(10 * i, 1, 1)] for i in range(1, 6)})
     src.fetch_results = {2: False, 3: RuntimeError("timeout")}
     state = {}
     result = run(tmp_path, src, state=state, episode_fetch_limit=4)
+
     assert src.fetched == [1, 2, 3, 4]                                # the limit holds the fifth back
+    assert src.order[:4] == [("read", 1), ("fetch", 1), ("read", 1), ("read", 2)]   # fetch, re-read, write, next
     assert state["series_last_modified"] == {"1": "1001", "4": "1004"}  # only answered shows are marked
     assert sorted(f["id"] for f in result["failed_items"]) == [2, 3]
     assert any("5 shows need their episode list" in w for w in result["warnings"])
-    assert result["series"]["deleted"] == 0
+    assert tree(tmp_path) == ["Shows/Show 1/Season 01/Show 1 - S01E01.strm",
+                              "Shows/Show 4/Season 01/Show 4 - S01E01.strm"]
+    assert result["series"]["skipped"] == 3 and result["series"]["deleted"] == 0
+
+
+def test_stop_during_episode_fetching_writes_nothing_more(tmp_path):
+    shows = [show(i, f"Show {i}", []) for i in range(1, 4)]
+    pending = [{"relation_id": i, "series_id": i, "name": f"Show {i}", "last_modified": "1"} for i in range(1, 4)]
+    src = LoadingSource(shows, pending, {i: [episode(10 * i, 1, 1)] for i in range(1, 4)})
+    result = run(tmp_path, src, control=FakeControl(stop_after=4), kinds=("series",))
+    assert result["stopped"] and len(src.fetched) < 3
 
 
 def test_fetch_can_be_turned_off_and_movies_only_skips_series(tmp_path):

@@ -135,6 +135,7 @@ class Engine:
         self.added_titles = []
         self.stopped = False
         self.counters_fetched = 0
+        self.last_fetch_seconds = 0.0
         self.clock = time.monotonic
         self._beat_label = None
         self._beat_start = self._beat_last = 0.0
@@ -333,14 +334,16 @@ class Engine:
             if status == "ok":
                 answered = True
                 known[str(item["relation_id"])] = item.get("last_modified") or ""
-                self.log.info("Fetched the episode list of '%s' from the provider", item.get("name"))
+                self.log.info("Fetched the episode list of '%s' from the provider in %.1f s",
+                              item.get("name"), self.last_fetch_seconds)
             elif status == "empty":
                 # Not a failure: the provider lists the show without episodes. Dispatcharr asks
                 # again after a day, and so do we.
                 self.log.info("The provider has no episodes for '%s' yet", item.get("name"))
             else:
                 counters["lists_failed"] += 1
-                self.log.warning("Episode list of '%s' failed: %s", item.get("name"), reason)
+                self.log.warning("Episode list of '%s' failed after %.1f s: %s",
+                                 item.get("name"), self.last_fetch_seconds, reason)
                 self.failed_items.append({
                     "kind": "series",
                     "id": item.get("series_id"),
@@ -352,10 +355,13 @@ class Engine:
     RETRY_WAIT = 10.0
 
     def _fetch_one(self, item):
+        started = self.clock()
         try:
             outcome = self.source.fetch_episodes(item)
         except Exception as exc:
             return "error", str(exc)[:200] or exc.__class__.__name__
+        finally:
+            self.last_fetch_seconds = self.clock() - started
         if outcome is True:
             return "ok", ""
         if outcome is False or outcome is None:

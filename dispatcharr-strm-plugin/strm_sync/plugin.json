@@ -1,6 +1,6 @@
 {
   "name": "STRM Sync",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Writes .strm files for Dispatcharr's movies and series by hand, after each M3U refresh or on a schedule, so Emby, Jellyfin or Plex can add them as normal libraries. Open the dashboard with the Docs link.",
   "author": "emby-xtream",
   "help_url": "/logos/strm_sync/index.html",

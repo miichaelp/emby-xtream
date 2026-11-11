@@ -259,7 +259,7 @@ class DispatcharrSource:
             .order_by("-m3u_account__priority", "id")
             .values(
                 "id", "series_id", "series__name", "category_id", "m3u_account_id",
-                "custom_properties", "last_episode_refresh",
+                "m3u_account__name", "external_series_id", "custom_properties", "last_episode_refresh",
             )
             .iterator(chunk_size=CHUNK)
         )
@@ -276,6 +276,8 @@ class DispatcharrSource:
                 "series_id": row["series_id"],
                 "name": row["series__name"],
                 "last_modified": last_modified,
+                "account": row["m3u_account__name"] or "",
+                "external_id": row["external_series_id"] or "",
             }
             if not props.get("episodes_fetched"):
                 # Asked within the last day and still empty: the provider has nothing. Forced

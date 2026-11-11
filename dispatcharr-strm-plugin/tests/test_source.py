@@ -173,6 +173,7 @@ def test_which_shows_need_their_episode_list(world):
     assert known[str(first_seen.id)] == "100"                       # recorded, not fetched again
     changed_item = next(p for p in pending if p["name"] == "Changed")
     assert changed_item["relation_id"] == changed.id and changed_item["last_modified"] == "301"
+    assert (changed_item["account"], changed_item["external_id"]) == ("Main", "ch")
 
     forced = source().series_needing_episodes({}, only_ids=[empty_recent.series_id])
     assert [p["name"] for p in forced] == ["Empty, asked today"]    # a retry asks even within the day

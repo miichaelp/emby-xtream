@@ -358,7 +358,7 @@ def test_a_refusal_is_tried_five_more_times_at_the_same_pace(tmp_path, caplog):
     assert clock.sleeps.count(8.0) == 1 and clock.sleeps.count(5.0) == 1
     assert engine.gap == 1.0                                  # the pace is never changed
     assert [f["id"] for f in result["failed_items"]] == [4]
-    assert "from the provider in 0.0 s (3rd try)" in caplog.text     # one line per show
+    assert "'Show 2' from the provider in 0.0 s (3rd try)" in caplog.text     # one line per show
     assert "failed after 6 tries" in caplog.text and "try 2 in" not in caplog.text
 
 
@@ -367,3 +367,19 @@ def test_the_gap_counts_from_the_end_of_the_last_request(tmp_path):
     engine.run({}, kinds=("series",))
     # The fake clock only moves when sleeping, so each wait is the full second.
     assert clock.sleeps == [1.0, 1.0, 1.0, 1.0]
+
+
+def test_fetch_lines_name_the_account_asked(tmp_path, caplog):
+    import logging
+
+    shows = [show(1, "Show", [])]
+    pending = [{"relation_id": 1, "series_id": 1, "name": "Show", "last_modified": "1",
+                "account": "Backup IPTV", "external_id": "5521"},
+               {"relation_id": 2, "series_id": 1, "name": "Show", "last_modified": "1",
+                "account": "Main IPTV", "external_id": "77"}]
+    src = LoadingSource(shows, pending, {1: [episode(1, 1, 1)]})
+    src.fetch_results = {2: [REFUSED] * 6}
+    with caplog.at_level(logging.INFO, logger=LOG.name):
+        Engine(settings(tmp_path), src, FakeControl(), LOG, sleep=lambda s: None).run({}, kinds=("series",))
+    assert "'Show' from account 'Backup IPTV' (series 5521) in" in caplog.text
+    assert "'Show' from account 'Main IPTV' (series 77) failed after 6 tries" in caplog.text

@@ -122,6 +122,15 @@ def _duration(seconds):
     return f"{minutes // 60} h {minutes % 60} min"
 
 
+def _from(item):
+    """" from account 'Main' (series 1234)", naming the Dispatcharr M3U account asked."""
+    account = item.get("account")
+    if not account:
+        return " from the provider"
+    external = item.get("external_id")
+    return f" from account '{account}'" + (f" (series {external})" if external else "")
+
+
 def _nth_try(tries):
     if tries <= 1:
         return ""
@@ -366,23 +375,23 @@ class Engine:
                 if status != "error" or self._stop_requested():
                     break
                 tries = attempt
-                self.log.debug("Episode list of '%s' failed (%s); try %d in %d s",
-                               item.get("name"), reason, attempt, int(wait))
+                self.log.debug("Episode list of '%s'%s failed (%s); try %d in %d s",
+                               item.get("name"), _from(item), reason, attempt, int(wait))
                 self.sleep(wait)
                 status, reason = self._fetch_one(item)
             if status == "ok":
                 answered = True
                 known[str(item["relation_id"])] = item.get("last_modified") or ""
-                self.log.info("Fetched the episode list of '%s' from the provider in %.1f s%s",
-                              item.get("name"), self.last_fetch_seconds, _nth_try(tries))
+                self.log.info("Fetched the episode list of '%s'%s in %.1f s%s",
+                              item.get("name"), _from(item), self.last_fetch_seconds, _nth_try(tries))
             elif status == "empty":
                 # Not a failure: the provider lists the show without episodes. Dispatcharr asks
                 # again after a day, and so do we.
-                self.log.info("The provider has no episodes for '%s' yet", item.get("name"))
+                self.log.info("No episodes yet for '%s'%s", item.get("name"), _from(item))
             else:
                 counters["lists_failed"] += 1
-                self.log.warning("Episode list of '%s' failed after %d tries: %s",
-                                 item.get("name"), tries, reason)
+                self.log.warning("Episode list of '%s'%s failed after %d tries: %s",
+                                 item.get("name"), _from(item), tries, reason)
                 self.failed_items.append({
                     "kind": "series",
                     "id": item.get("series_id"),

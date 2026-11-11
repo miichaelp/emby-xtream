@@ -178,17 +178,49 @@ def test_which_shows_need_their_episode_list(world):
     assert [p["name"] for p in forced] == ["Empty, asked today"]    # a retry asks even within the day
 
 
-def test_fetch_episodes_reads_the_outcome_back(world):
+def test_fetch_episodes_sends_one_request_and_hands_the_episodes_to_dispatcharr(world):
+    import requests as http
+
+    from core import xtream_codes
+
+    xtream_codes.requests.clear()
+    xtream_codes.answers.clear()
     _, ok = _series(world, "Ok", world.main, world.drama, "ok", fetched=False)
-    _, nothing = _series(world, "Nothing", world.main, world.drama, "nothing", fetched=False)
-    _, error = _series(world, "Error", world.main, world.drama, "error", fetched=True, last_modified="5")
-    vod_tasks.behaviour.update({"nothing": "empty", "error": "error"})
+    _, empty = _series(world, "Empty", world.main, world.drama, "empty", fetched=False)
+    _, refused = _series(world, "Refused", world.main, world.drama, "refused", fetched=False)
+    _, broken = _series(world, "Broken", world.main, world.drama, "broken", fetched=False)
+    episodes = {"1": [{"id": 9, "episode_num": 1}]}
+    xtream_codes.answers.update({
+        "ok": {"info": {}, "episodes": episodes},
+        "empty": {"info": {}, "episodes": []},
+        "refused": http.HTTPError("403 Client Error: Forbidden for url: http://provider/player_api.php?username=user&password=pass"),
+    })
+    vod_tasks.behaviour["broken"] = "error"     # Dispatcharr fails while storing them
     src = source()
+
     assert src.fetch_episodes({"relation_id": ok.id}) == ("ok", "")
-    assert src.fetch_episodes({"relation_id": nothing.id}) == ("empty", "")
-    # Already loaded, provider times out on the re-check: an error with Dispatcharr's own reason.
-    assert src.fetch_episodes({"relation_id": error.id}) == ("error", "The provider did not answer within 60 seconds")
-    assert vod_tasks.calls == ["ok", "nothing", "error"]
+    assert vod_tasks.calls == [("ok", episodes)]                     # Dispatcharr stores exactly what came back
+    assert xtream_codes.requests == [("series_info", "ok")]          # one request, no separate login
+
+    assert src.fetch_episodes({"relation_id": empty.id}) == ("empty", "")
+    empty.refresh_from_db()
+    assert empty.last_episode_refresh is not None and empty.custom_properties["episodes_fetched"] is False
+
+    status, reason = src.fetch_episodes({"relation_id": refused.id})
+    assert (status, reason) == ("error", "The provider answered with an error (HTTP 403)")
+
+    status, reason = src.fetch_episodes({"relation_id": broken.id})
+    assert status == "error" and reason.startswith("Dispatcharr could not store the episodes")
+    assert ("login", None) not in xtream_codes.requests
+
+
+def test_errors_never_show_the_provider_address_or_password():
+    from strm_sync.source import friendly_error
+
+    text = friendly_error("XC API Request failed: weird thing for url: http://p/player_api.php?username=u&password=secretpw")
+    assert "secretpw" not in text and "http" not in text
+    text = friendly_error("Something about http://p/x?password=secretpw happened")
+    assert "secretpw" not in text and "<provider address>" in text
 
 
 @pytest.mark.parametrize("message,expected", [

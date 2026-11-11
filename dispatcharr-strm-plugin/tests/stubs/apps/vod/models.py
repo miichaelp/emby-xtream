@@ -72,6 +72,8 @@ class M3USeriesRelation(models.Model):
 class M3UEpisodeRelation(models.Model):
     m3u_account = models.ForeignKey(M3UAccount, on_delete=models.CASCADE)
     episode = models.ForeignKey(Episode, on_delete=models.CASCADE, related_name="m3u_relations")
+    series_relation = models.ForeignKey("M3USeriesRelation", on_delete=models.CASCADE, null=True,
+                                        related_name="episode_relations")
     stream_id = models.CharField(max_length=255)
     container_extension = models.CharField(max_length=10, null=True)
 

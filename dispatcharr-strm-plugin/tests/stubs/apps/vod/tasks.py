@@ -12,8 +12,8 @@ behaviour = {}
 def refresh_series_episodes(account, series, external_series_id, episodes_data=None):
     from apps.vod.models import M3USeriesRelation
 
-    calls.append(external_series_id)
-    outcome = behaviour.get(external_series_id, "ok")
+    calls.append((external_series_id, episodes_data))
+    outcome = behaviour.get(external_series_id, "ok" if episodes_data else "empty")
     if outcome == "error":
         # What Dispatcharr logs when the provider does not answer, then returns without touching the relation.
         logger.error(f"Error refreshing episodes for series {series.name}: HTTPConnectionPool(host='p', port=80): "

@@ -51,7 +51,11 @@ class capture_errors:
 
 def friendly_error(message):
     """The provider error Dispatcharr logged, in the user's words."""
-    text = (message or "").strip()
+    import re
+
+    # requests puts the full URL, with the account's user name and password, in its messages.
+    text = re.sub(r"\s*for url:\s*\S+", "", (message or "").strip())
+    text = re.sub(r"https?://\S+", "<provider address>", text)
     low = text.lower()
     if not text:
         return "The provider did not answer"
@@ -286,24 +290,49 @@ class DispatcharrSource:
         return pending
 
     def fetch_episodes(self, item):
-        """Has Dispatcharr load one show's episodes from its provider.
+        """Gets one show's episodes from its IPTV provider and has Dispatcharr store them.
 
         Returns ("ok", ""), ("empty", "") when the provider answered without
-        episodes, or ("error", reason). Dispatcharr logs and swallows provider
-        errors in refresh_series_episodes, so the outcome is read back from the
-        relation and the reason from the error it logged.
+        episodes, or ("error", reason).
+
+        One request per show. Dispatcharr's own refresh_series_episodes sends a
+        separate login request first and then the episode request straight after;
+        providers that limit requests refused the second one about half the time
+        with HTTP 403. The Xtream API needs no login call, so the plugin asks for
+        the episode list on its own and passes it to refresh_series_episodes,
+        which stores it exactly as when someone opens the show in Dispatcharr.
         """
-        from apps.vod.models import M3USeriesRelation
+        from django.utils import timezone
+
+        from apps.vod.models import M3UEpisodeRelation, M3USeriesRelation
         from apps.vod.tasks import refresh_series_episodes
+        from core.xtream_codes import Client
 
         relation = M3USeriesRelation.objects.select_related("series", "m3u_account").get(id=item["relation_id"])
-        before = relation.last_episode_refresh
+        account = relation.m3u_account
+        with Client(account.server_url, account.username, account.password,
+                    account.get_user_agent_string()) as client:
+            client.server_info = {"login": "not needed"}  # skips the separate login request
+            try:
+                info = client.get_series_info(relation.external_series_id)
+            except Exception as exc:
+                return "error", friendly_error(str(exc))
+
+        episodes = info.get("episodes") if isinstance(info, dict) else None
+        if not episodes:
+            # Recorded the way Dispatcharr records an empty answer, so the show is asked
+            # again after a day rather than on every sync. Stored episodes stay.
+            props = dict(relation.custom_properties or {})
+            props["episodes_fetched"] = M3UEpisodeRelation.objects.filter(series_relation=relation).exists()
+            relation.custom_properties = props
+            relation.last_episode_refresh = timezone.now()
+            relation.save(update_fields=["custom_properties", "last_episode_refresh"])
+            return "empty", ""
+
         with capture_errors(("apps.vod.tasks", "core.xtream_codes")) as errors:
-            refresh_series_episodes(relation.m3u_account, relation.series, relation.external_series_id)
+            refresh_series_episodes(account, relation.series, relation.external_series_id, episodes_data=episodes)
         relation.refresh_from_db(fields=["custom_properties", "last_episode_refresh"])
         props = relation.custom_properties if isinstance(relation.custom_properties, dict) else {}
-        if relation.last_episode_refresh == before:
-            return "error", friendly_error(errors[0] if errors else "")
         if not props.get("episodes_fetched"):
-            return "empty", ""
+            return "error", "Dispatcharr could not store the episodes: " + friendly_error(errors[0] if errors else "")
         return "ok", ""

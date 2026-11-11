@@ -68,7 +68,7 @@ class Settings:
         self.excluded_categories = core.parse_terms(raw.get("excluded_categories"))
         self.fetch_episodes = _as_bool(raw.get("fetch_episodes"), True)
         self.episode_fetch_limit = int(_as_number(raw.get("episode_fetch_limit"), 0, 0))
-        self.episode_fetch_delay_ms = int(_as_number(raw.get("episode_fetch_delay_ms"), 1000, 0, 60000))
+        self.episode_fetch_delay_ms = int(_as_number(raw.get("episode_fetch_delay_ms"), 500, 0, 60000))
         self.cleanup_orphans = _as_bool(raw.get("cleanup_orphans"), True)
         self.safety_limit = _as_number(raw.get("safety_limit"), 20, 0, 100) / 100.0
         self.emby_url = core.normalize_base_url(raw.get("emby_url"))
@@ -120,6 +120,13 @@ def _duration(seconds):
     if minutes < 90:
         return f"{minutes} min"
     return f"{minutes // 60} h {minutes % 60} min"
+
+
+def _nth_try(tries):
+    if tries <= 1:
+        return ""
+    suffix = {2: "nd", 3: "rd"}.get(tries, "th")
+    return f" ({tries}{suffix} try)"
 
 
 class Engine:
@@ -320,11 +327,12 @@ class Engine:
                           "before it is written", len(by_series))
         return by_series
 
-    # Waits before each further try. Refusals (HTTP 403 or 429) get four more tries in
-    # quick succession: a real provider refused about half of all requests at random,
-    # whatever the time between them (under 1 s or over 15 s alike), and answered the same
-    # request when asked again. Slowing down did not help, so the pace stays as set.
-    RETRY_WAITS_LIMITED = (3.0, 5.0, 10.0, 20.0)
+    # Waits before each further try. Refusals (HTTP 403 or 429) get five more tries in
+    # quick succession: a real provider refused about 45% of all requests at random,
+    # whatever the time since the previous request or the last answered one (under 1.5 s
+    # and over 20 s alike), and answered the same request when asked again. Waiting longer
+    # did not help, so the waits are short and the number of tries is what counts.
+    RETRY_WAITS_LIMITED = (1.0, 2.0, 3.0, 5.0, 8.0)
     RETRY_WAITS_OTHER = (10.0,)
 
     @staticmethod
@@ -353,18 +361,20 @@ class Engine:
             waits = ()
             if status == "error":
                 waits = self.RETRY_WAITS_LIMITED if self._limited(reason) else self.RETRY_WAITS_OTHER
+            tries = 1
             for attempt, wait in enumerate(waits, 2):
                 if status != "error" or self._stop_requested():
                     break
-                self.log.info("Episode list of '%s' failed (%s); try %d in %d s",
-                              item.get("name"), reason, attempt, int(wait))
+                tries = attempt
+                self.log.debug("Episode list of '%s' failed (%s); try %d in %d s",
+                               item.get("name"), reason, attempt, int(wait))
                 self.sleep(wait)
                 status, reason = self._fetch_one(item)
             if status == "ok":
                 answered = True
                 known[str(item["relation_id"])] = item.get("last_modified") or ""
-                self.log.info("Fetched the episode list of '%s' from the provider in %.1f s",
-                              item.get("name"), self.last_fetch_seconds)
+                self.log.info("Fetched the episode list of '%s' from the provider in %.1f s%s",
+                              item.get("name"), self.last_fetch_seconds, _nth_try(tries))
             elif status == "empty":
                 # Not a failure: the provider lists the show without episodes. Dispatcharr asks
                 # again after a day, and so do we.
@@ -372,7 +382,7 @@ class Engine:
             else:
                 counters["lists_failed"] += 1
                 self.log.warning("Episode list of '%s' failed after %d tries: %s",
-                                 item.get("name"), len(waits) + 1, reason)
+                                 item.get("name"), tries, reason)
                 self.failed_items.append({
                     "kind": "series",
                     "id": item.get("series_id"),

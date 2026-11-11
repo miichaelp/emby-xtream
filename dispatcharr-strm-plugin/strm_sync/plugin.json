@@ -1,6 +1,6 @@
 {
   "name": "STRM Sync",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Writes .strm files for Dispatcharr's movies and series by hand, after each M3U refresh or on a schedule, so Emby, Jellyfin or Plex can add them as normal libraries. Open the dashboard with the Docs link.",
   "author": "emby-xtream",
   "help_url": "/logos/strm_sync/index.html",
@@ -37,7 +37,7 @@
     { "id": "h_series", "type": "info", "label": "Episode lists", "description": "Dispatcharr only loads a show's episodes when someone opens it. The plugin asks for the missing ones, one show at a time, and again when the provider changes a show." },
     { "id": "fetch_episodes", "label": "Ask the IPTV provider for missing episode lists", "type": "boolean", "default": true, "help_text": "Off: no requests go to your IPTV provider, and only shows whose episodes Dispatcharr already has (shows someone has opened) get files. Movies never need the provider." },
     { "id": "episode_fetch_limit", "label": "Most shows to fetch per sync (0 = no limit)", "type": "number", "default": 0, "help_text": "The first sync asks the provider once per show. Set a limit to spread a large catalogue over several syncs." },
-    { "id": "episode_fetch_delay_ms", "label": "Least time between provider requests (ms)", "type": "number", "default": 1000, "help_text": "A request the provider refuses (HTTP 403 or 429) is tried up to four more times, after 3, 5, 10 and 20 seconds." },
+    { "id": "episode_fetch_delay_ms", "label": "Least time between provider requests (ms)", "type": "number", "default": 500, "help_text": "A request the provider refuses (HTTP 403 or 429) is tried up to five more times, after 1, 2, 3, 5 and 8 seconds." },
 
     { "id": "h_cleanup", "type": "info", "label": "Clean-up", "description": "Only .strm files this plugin wrote are ever removed. Your own files in the same folders stay." },
     { "id": "cleanup_orphans", "label": "Remove files for titles Dispatcharr no longer has", "type": "boolean", "default": true },

@@ -343,18 +343,23 @@ def _limited_engine(tmp_path, results, delay_ms=1000, count=None):
 REFUSED = ("error", "The provider answered with an error (HTTP 403)")
 
 
-def test_a_refusal_is_tried_four_more_times_at_the_same_pace(tmp_path):
+def test_a_refusal_is_tried_five_more_times_at_the_same_pace(tmp_path, caplog):
     engine, src, clock = _limited_engine(tmp_path, {
         1: ("ok", ""),
         2: [REFUSED, REFUSED, ("ok", "")],                    # third try works
         3: ("ok", ""),
-        4: [REFUSED] * 5,                                     # never works
+        4: [REFUSED] * 6,                                     # never works
     })
-    result = engine.run({}, kinds=("series",))
-    assert src.fetched == [1, 2, 2, 2, 3, 4, 4, 4, 4, 4]
-    assert [w for w in clock.sleeps if w >= 3] == [3.0, 5.0, 3.0, 5.0, 10.0, 20.0]
+    import logging
+
+    with caplog.at_level(logging.INFO, logger=LOG.name):
+        result = engine.run({}, kinds=("series",))
+    assert src.fetched == [1, 2, 2, 2, 3, 4, 4, 4, 4, 4, 4]
+    assert clock.sleeps.count(8.0) == 1 and clock.sleeps.count(5.0) == 1
     assert engine.gap == 1.0                                  # the pace is never changed
     assert [f["id"] for f in result["failed_items"]] == [4]
+    assert "from the provider in 0.0 s (3rd try)" in caplog.text     # one line per show
+    assert "failed after 6 tries" in caplog.text and "try 2 in" not in caplog.text
 
 
 def test_the_gap_counts_from_the_end_of_the_last_request(tmp_path):

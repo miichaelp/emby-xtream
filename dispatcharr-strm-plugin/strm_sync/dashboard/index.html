@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STRM Sync</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1d2026; --panel-2: #262a32; --line: #333842;
+    --text: #e6e8ec; --dim: #9aa1ad; --accent: #2f9e6e; --accent-2: #3b82c4;
+    --warn: #d99a2b; --bad: #d1524a; --radius: 10px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f3f4f6; --panel: #ffffff; --panel-2: #f0f1f4; --line: #dcdfe5;
+            --text: #1c1f24; --dim: #5f6773; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 1.5rem; margin: 0; }
+  h2 { font-size: .78rem; letter-spacing: .07em; text-transform: uppercase; color: var(--dim);
+       margin: 0 0 12px; font-weight: 600; }
+  a { color: var(--accent-2); }
+  .dim { color: var(--dim); }
+  .spacer { flex: 1; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+          padding: 18px; margin-bottom: 16px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;
+           margin-bottom: 16px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+          padding: 14px 16px; }
+  .tile b { display: block; font-size: 1.7rem; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .tile span { color: var(--dim); font-size: .85rem; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+           padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+  button:hover:not(:disabled) { filter: brightness(1.12); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+  button.link { background: none; border: none; color: var(--accent-2); padding: 0; text-decoration: underline; }
+  .bar { height: 14px; background: var(--panel-2); border-radius: 7px; overflow: hidden; margin: 10px 0 8px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent-2); transition: width .3s ease; }
+  .bar.indeterminate i { width: 35%; animation: slide 1.4s ease-in-out infinite; }
+  @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+  .banner { border-radius: var(--radius); padding: 12px 16px; margin-bottom: 16px; border: 1px solid; }
+  .banner.bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+  .banner.warn { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+  .banner ul { margin: 4px 0 0; padding-left: 20px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; font-size: .8rem; white-space: nowrap; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .badge { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: .78rem; font-weight: 600;
+           white-space: nowrap; }
+  .badge.ok { background: color-mix(in srgb, var(--accent) 25%, transparent); color: var(--accent); }
+  .badge.bad { background: color-mix(in srgb, var(--bad) 25%, transparent); color: var(--bad); }
+  .badge.warn { background: color-mix(in srgb, var(--warn) 25%, transparent); color: var(--warn); }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 18px; font-size: .92rem; }
+  .kv dt { color: var(--dim); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+  pre { background: var(--panel-2); border-radius: 8px; padding: 12px; max-height: 420px; overflow: auto;
+        font-size: .8rem; white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; }
+  details summary { cursor: pointer; color: var(--dim); }
+  .hidden { display: none !important; }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--panel-2);
+           border: 1px solid var(--line); padding: 10px 16px; border-radius: 8px; max-width: 90vw; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>STRM Sync</h1>
+    <span class="dim" id="version"></span>
+    <span class="spacer"></span>
+    <a href="/plugins">Settings (Dispatcharr &rsaquo; Plugins)</a>
+  </header>
+
+  <div id="login" class="banner bad hidden">
+    You are not signed in to Dispatcharr in this browser. <a href="/login">Sign in</a>, then reload this page.
+  </div>
+  <div id="problems" class="banner bad hidden"></div>
+  <div id="warnings" class="banner warn hidden"></div>
+
+  <section class="tiles">
+    <div class="tile"><b id="c-movies">–</b><span>Movies</span></div>
+    <div class="tile"><b id="c-series">–</b><span>Series</span></div>
+    <div class="tile"><b id="c-episodes">–</b><span>Episodes</span></div>
+    <div class="tile"><b id="c-files">–</b><span>.strm files</span></div>
+    <div class="tile"><b id="c-last" style="font-size:1.05rem; padding:.45rem 0">–</b><span>Last sync</span></div>
+  </section>
+
+  <section class="card hidden" id="progress">
+    <h2>Sync in progress</h2>
+    <div class="row">
+      <strong id="p-phase">Working…</strong>
+      <span class="spacer"></span>
+      <button class="danger" id="btn-stop">Stop sync</button>
+    </div>
+    <div class="bar" id="p-bar"><i></i></div>
+    <div class="dim" id="p-detail"></div>
+  </section>
+
+  <section class="card">
+    <h2>Sync</h2>
+    <div class="row">
+      <button class="primary" data-action="sync_all">Sync movies &amp; series</button>
+      <button data-action="sync_movies">Sync movies</button>
+      <button data-action="sync_series">Sync series</button>
+      <button data-action="retry_failed" id="btn-retry" class="hidden">Retry failed items</button>
+    </div>
+    <p class="dim" id="auto-note" style="margin:.8em 0 0"></p>
+  </section>
+
+  <section class="card">
+    <h2>History</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Finished</th><th>Result</th><th>Started by</th><th>Took</th><th>Movies</th><th>Series</th><th>Removed</th></tr></thead>
+      <tbody id="history"><tr><td colspan="7" class="dim">No sync has run yet.</td></tr></tbody>
+    </table></div>
+    <details id="removed-box" class="hidden" style="margin-top:12px">
+      <summary>Files removed by the last sync</summary>
+      <pre id="removed"></pre>
+    </details>
+  </section>
+
+  <section class="card hidden" id="failed-card">
+    <h2>Failed items</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Type</th><th>Title</th><th>Reason</th></tr></thead>
+      <tbody id="failed"></tbody>
+    </table></div>
+  </section>
+
+  <section class="card">
+    <h2>Setup</h2>
+    <dl class="kv" id="setup"></dl>
+  </section>
+
+  <section class="card">
+    <h2>Log</h2>
+    <div class="row">
+      <button id="btn-log">Show log</button>
+      <button id="btn-log-dl">Download log</button>
+      <span class="dim">Passwords and API keys are removed.</span>
+    </div>
+    <pre id="log" class="hidden"></pre>
+  </section>
+
+  <section class="card">
+    <h2>Danger zone</h2>
+    <div class="row">
+      <button class="danger" data-delete="delete_movies">Delete all movie files</button>
+      <button class="danger" data-delete="delete_series">Delete all series files</button>
+      <span class="dim">Only files this plugin wrote are removed.</span>
+    </div>
+  </section>
+</main>
+<div id="toast" class="hidden"></div>
+
+<script>
+(function () {
+  'use strict';
+  var KEY = '__PLUGIN_KEY__';
+  var RUN_URL = '/api/plugins/plugins/' + KEY + '/run/';
+  var $ = function (id) { return document.getElementById(id); };
+  var busy = false, timer = null, lastData = null;
+
+  function toast(text) {
+    var el = $('toast'); el.textContent = text; el.classList.remove('hidden');
+    clearTimeout(toast.t); toast.t = setTimeout(function () { el.classList.add('hidden'); }, 5000);
+  }
+
+  // Dispatcharr's own web app keeps its login in localStorage; this page is on the
+  // same address, so it uses that login and never asks for a password.
+  function refreshToken() {
+    var refresh = localStorage.getItem('refreshToken');
+    if (!refresh) return Promise.resolve(false);
+    return fetch('/api/accounts/token/refresh/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh: refresh })
+    }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (!d || !d.access) return false;
+      localStorage.setItem('accessToken', d.access);
+      return true;
+    }).catch(function () { return false; });
+  }
+
+  function call(action, params, retried) {
+    var token = localStorage.getItem('accessToken');
+    if (!token) { $('login').classList.remove('hidden'); return Promise.reject(new Error('not signed in')); }
+    return fetch(RUN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ action: action, params: params || {} })
+    }).then(function (r) {
+      if (r.status === 401 && !retried) {
+        return refreshToken().then(function (ok) {
+          if (!ok) { $('login').classList.remove('hidden'); throw new Error('not signed in'); }
+          return call(action, params, true);
+        });
+      }
+      return r.json().catch(function () { return {}; }).then(function (body) {
+        if (!r.ok || body.success === false) {
+          throw new Error(body.error || (r.status === 403
+            ? 'The plugin is disabled, or this account is not an administrator.'
+            : 'Dispatcharr answered ' + r.status));
+        }
+        $('login').classList.add('hidden');
+        return body.result || {};
+      });
+    });
+  }
+
+  function n(v) { return (v === undefined || v === null) ? '–' : Number(v).toLocaleString(); }
+  function when(iso) {
+    if (!iso) return '–';
+    var d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  }
+  function took(sec) {
+    sec = Math.round(sec || 0);
+    if (sec < 60) return sec + ' s';
+    var m = Math.floor(sec / 60);
+    return m < 60 ? m + ' min ' + (sec % 60) + ' s' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
+  }
+  function el(tag, text, cls) {
+    var e = document.createElement(tag);
+    if (text !== undefined && text !== null) e.textContent = text;
+    if (cls) e.className = cls;
+    return e;
+  }
+  function kindSummary(s) {
+    if (!s) return '–';
+    var parts = [n(s.total) + ' total'];
+    if (s.added) parts.push(n(s.added) + ' new');
+    if (s.updated) parts.push(n(s.updated) + ' changed');
+    if (s.failed) parts.push(n(s.failed) + ' failed');
+    return parts.join(', ');
+  }
+  function list(target, cls, title, items) {
+    target.textContent = '';
+    if (!items || !items.length) { target.classList.add('hidden'); return; }
+    target.className = 'banner ' + cls;
+    target.appendChild(el('strong', title));
+    var ul = el('ul');
+    items.forEach(function (i) { ul.appendChild(el('li', i)); });
+    target.appendChild(ul);
+  }
+
+  function render(d) {
+    lastData = d;
+    $('version').textContent = 'v' + d.version;
+    var problems = (d.problems || []).slice();
+    if (d.last_error) problems.push('The last sync failed: ' + d.last_error);
+    if (d.progress && d.progress.error) problems.push(d.progress.error);
+    list($('problems'), 'bad', 'Needs attention', problems);
+    list($('warnings'), 'warn', 'From the last sync', d.warnings);
+
+    var c = d.counts || {};
+    $('c-movies').textContent = n(c.movies);
+    $('c-series').textContent = n(c.series);
+    $('c-episodes').textContent = n(c.episodes);
+    $('c-files').textContent = (c.movie_files === undefined && c.episode_files === undefined)
+      ? '–' : n((c.movie_files || 0) + (c.episode_files || 0));
+    $('c-last').textContent = d.history && d.history.length ? when(d.history[0].end) : 'Never';
+
+    var p = d.progress || {};
+    var active = !!(p.running || p.queued);
+    $('progress').classList.toggle('hidden', !active);
+    if (p.running) {
+      var pct = p.total > 0 ? Math.min(100, Math.round(p.done / p.total * 100)) : 0;
+      $('p-phase').textContent = p.stopping ? 'Stopping…' : (p.phase || 'Working…');
+      $('p-bar').classList.toggle('indeterminate', !(p.total > 0));
+      $('p-bar').firstElementChild.style.width = p.total > 0 ? pct + '%' : '';
+      $('p-detail').textContent = p.total > 0
+        ? n(p.done) + ' of ' + n(p.total) + ' (' + pct + '%)' +
+          (p.added ? ', ' + n(p.added) + ' new' : '') + (p.failed ? ', ' + n(p.failed) + ' failed' : '')
+        : '';
+      $('btn-stop').disabled = !!p.stopping;
+      $('btn-stop').classList.remove('hidden');
+    } else if (p.queued) {
+      $('p-phase').textContent = 'Waiting for Dispatcharr to start the sync…';
+      $('p-bar').classList.add('indeterminate');
+      $('p-bar').firstElementChild.style.width = '';
+      $('p-detail').textContent = p.queued_for > 20
+        ? 'Still waiting. If the plugin was only just enabled or updated, restart Dispatcharr once so its ' +
+          'background workers load it.'
+        : '';
+      $('btn-stop').classList.add('hidden');
+    }
+    document.querySelectorAll('[data-action],[data-delete]').forEach(function (b) {
+      b.disabled = active || busy || !!(d.problems && d.problems.length && b.dataset.action);
+    });
+
+    var s = d.settings || {};
+    $('auto-note').textContent = s.auto_sync
+      ? 'A sync also starts by itself after each M3U / VOD refresh in Dispatcharr.'
+      : 'Automatic sync after an M3U / VOD refresh is turned off.';
+
+    var failed = d.failed || [];
+    $('btn-retry').classList.toggle('hidden', !failed.length);
+    $('btn-retry').textContent = 'Retry ' + failed.length + ' failed item' + (failed.length === 1 ? '' : 's');
+    $('failed-card').classList.toggle('hidden', !failed.length);
+    var fb = $('failed'); fb.textContent = '';
+    failed.slice(0, 200).forEach(function (f) {
+      var tr = el('tr');
+      tr.appendChild(el('td', f.kind === 'movie' ? 'Movie' : 'Series'));
+      tr.appendChild(el('td', f.name || ('id ' + f.id)));
+      tr.appendChild(el('td', f.error || '', 'dim'));
+      fb.appendChild(tr);
+    });
+
+    var hb = $('history');
+    if (d.history && d.history.length) {
+      hb.textContent = '';
+      d.history.forEach(function (h) {
+        var tr = el('tr');
+        tr.appendChild(el('td', when(h.end)));
+        var badge = el('span', h.stopped ? 'Stopped' : (h.success ? 'Completed' : 'Failed'),
+          'badge ' + (h.stopped ? 'warn' : (h.success ? 'ok' : 'bad')));
+        var td = el('td'); td.appendChild(badge);
+        if (!h.success && !h.stopped && h.message) { td.appendChild(el('div', h.message, 'dim')); }
+        tr.appendChild(td);
+        tr.appendChild(el('td', { auto: 'After a refresh', manual: 'By hand', retry: 'Retry' }[h.trigger] || h.trigger));
+        tr.appendChild(el('td', took(h.duration), 'num'));
+        tr.appendChild(el('td', kindSummary(h.movies)));
+        var ser = kindSummary(h.series);
+        if (h.series && h.series.episodes !== undefined) ser += ' (' + n(h.series.episodes) + ' episodes)';
+        tr.appendChild(el('td', ser));
+        tr.appendChild(el('td', n(((h.movies || {}).deleted || 0) + ((h.series || {}).deleted || 0)), 'num'));
+        hb.appendChild(tr);
+      });
+    }
+    var removed = d.removed || [];
+    $('removed-box').classList.toggle('hidden', !removed.length);
+    $('removed').textContent = removed.join('\n');
+
+    var setup = $('setup'); setup.textContent = '';
+    [
+      ['STRM folder', (s.output_dir || 'not set') + (s.output_dir && !s.output_dir_exists ? '  (does not exist yet)' : '')],
+      ['Address in the files', s.base_url || 'not set'],
+      ['Syncing', [s.sync_movies ? 'Movies' : null, s.sync_series ? 'Series' : null].filter(Boolean).join(' and ') || 'nothing'],
+      ['Stream URL', s.url_style === 'xtream' ? 'Xtream URL' : 'Dispatcharr proxy'],
+      ['Versions', s.multi_version ? 'One per provider' : 'Best provider only'],
+      ['Episode lists', s.fetch_episodes ? 'Fetched from the provider when missing' : 'Only what Dispatcharr already has'],
+      ['Clean-up', s.cleanup_orphans ? 'On, safety limit ' + s.safety_limit + '%' : 'Off'],
+      ['Media server scan', s.emby ? 'After each sync that changed files' : 'Not set up']
+    ].forEach(function (row) { setup.appendChild(el('dt', row[0])); setup.appendChild(el('dd', row[1])); });
+  }
+
+  function poll() {
+    clearTimeout(timer);
+    call('dashboard').then(render).catch(function (e) {
+      if (e.message !== 'not signed in') list($('problems'), 'bad', 'Dashboard could not load', [e.message]);
+    }).then(function () {
+      var p = (lastData && lastData.progress) || {};
+      timer = setTimeout(poll, (p.running || p.queued) ? 1500 : 6000);
+    });
+  }
+
+  function act(action) {
+    if (busy) return;
+    busy = true;
+    call(action).then(function (r) { toast(r.message || 'Done'); })
+      .catch(function (e) { toast(e.message); })
+      .then(function () { busy = false; poll(); });
+  }
+
+  document.querySelectorAll('[data-action]').forEach(function (b) {
+    b.addEventListener('click', function () { act(b.dataset.action); });
+  });
+  document.querySelectorAll('[data-delete]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (confirm(b.textContent + '?\n\nEvery .strm file this plugin wrote for them is removed. Your own files stay.')) {
+        act(b.dataset.delete);
+      }
+    });
+  });
+  $('btn-stop').addEventListener('click', function () { $('btn-stop').disabled = true; act('stop'); });
+  $('btn-log').addEventListener('click', function () {
+    var pre = $('log');
+    if (!pre.classList.contains('hidden')) { pre.classList.add('hidden'); $('btn-log').textContent = 'Show log'; return; }
+    call('log').then(function (r) {
+      pre.textContent = r.log || 'The log is empty.';
+      pre.classList.remove('hidden'); pre.scrollTop = pre.scrollHeight;
+      $('btn-log').textContent = 'Hide log';
+    }).catch(function (e) { toast(e.message); });
+  });
+  $('btn-log-dl').addEventListener('click', function () {
+    call('log').then(function (r) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([r.log || ''], { type: 'text/plain' }));
+      a.download = 'strm-sync.log'; a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    }).catch(function (e) { toast(e.message); });
+  });
+
+  poll();
+})();
+</script>
+</body>
+</html>

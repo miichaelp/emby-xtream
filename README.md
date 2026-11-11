@@ -123,6 +123,10 @@ When a new version is out, the plugin settings show an update banner. Click **Up
 - Movies and series episodes that Dispatcharr has from more than one provider get one version per provider.
 - **Send video as the first track** makes Dispatcharr put video before audio on every channel, so Emby can transcode channels whose source carries audio first. See Troubleshooting.
 
+### Writing the files from Dispatcharr instead
+
+[`dispatcharr-strm-plugin/`](dispatcharr-strm-plugin/README.md) holds a separate plugin for Dispatcharr that writes the same Movies and Series `.strm` layout from inside Dispatcharr, after each M3U / VOD refresh. Use it or this plugin's Movies and Series sync, not both on the same folder.
+
 ### Dashboard and settings
 
 - Last sync, history of the last 10 syncs, library counts and live progress.

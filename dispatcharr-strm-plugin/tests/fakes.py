@@ -52,7 +52,9 @@ class FakeSource:
 
     def fetch_episodes(self, item):
         self.fetched.append(item["relation_id"])
-        outcome = self.fetch_results.get(item["relation_id"], True)
+        outcome = self.fetch_results.get(item["relation_id"], ("ok", ""))
+        if isinstance(outcome, list):          # one answer per attempt
+            outcome = outcome.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
         return outcome

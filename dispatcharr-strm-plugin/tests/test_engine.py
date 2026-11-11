@@ -230,7 +230,7 @@ class LoadingSource(FakeSource):
     def fetch_episodes(self, item):
         self.order.append(("fetch", item["series_id"]))
         ok = super().fetch_episodes(item)
-        if ok is True and item["series_id"] in self.loaded:
+        if ok == ("ok", "") and item["series_id"] in self.loaded:
             show = next(s for s in self.shows if s["id"] == item["series_id"])
             show["episodes"] = self.loaded[item["series_id"]]
         return ok
@@ -241,14 +241,22 @@ def test_episode_lists_are_fetched_just_before_each_show_is_written(tmp_path):
     pending = [{"relation_id": i, "series_id": i, "name": f"Show {i}", "last_modified": str(1000 + i)}
                for i in range(1, 6)]
     src = LoadingSource(shows, pending, {i: [episode(10 * i, 1, 1)] for i in range(1, 6)})
-    src.fetch_results = {2: False, 3: RuntimeError("timeout")}
+    src.fetch_results = {
+        2: ("empty", ""),                                                     # no episodes: not a failure
+        3: [("error", "The provider did not answer within 60 seconds")] * 2,  # fails twice
+        4: [RuntimeError("boom"), ("ok", "")],                                # fails, then the retry works
+    }
+    sleeps = []
+    engine = Engine(settings(tmp_path, episode_fetch_limit=4, episode_fetch_delay_ms=0), src, FakeControl(), LOG,
+                    sleep=sleeps.append)
     state = {}
-    result = run(tmp_path, src, state=state, episode_fetch_limit=4)
+    result = engine.run(state)
 
-    assert src.fetched == [1, 2, 3, 4]                                # the limit holds the fifth back
+    assert src.fetched == [1, 2, 3, 3, 4, 4]                          # the limit holds the fifth back
+    assert sleeps == [Engine.RETRY_WAIT, Engine.RETRY_WAIT]
     assert src.order[:4] == [("read", 1), ("fetch", 1), ("read", 1), ("read", 2)]   # fetch, re-read, write, next
     assert state["series_last_modified"] == {"1": "1001", "4": "1004"}  # only answered shows are marked
-    assert sorted(f["id"] for f in result["failed_items"]) == [2, 3]
+    assert [(f["id"], f["error"]) for f in result["failed_items"]] == [(3, "The provider did not answer within 60 seconds")]
     assert any("5 shows need their episode list" in w for w in result["warnings"])
     assert tree(tmp_path) == ["Shows/Show 1/Season 01/Show 1 - S01E01.strm",
                               "Shows/Show 4/Season 01/Show 4 - S01E01.strm"]

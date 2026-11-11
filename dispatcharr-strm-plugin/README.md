@@ -30,9 +30,15 @@ sync makes no requests to Dispatcharr's API and cannot overload it.
 - **Series**: `Shows/Show/Season 01/Show - S01E01 - Title.strm`. Specials go to `Season 00`.
 - **Versions**: a title that more than one provider carries gets one file per provider, named
   after the provider (`Title - Backup Provider.strm`), which Emby shows as versions.
-- **Episode lists**: Dispatcharr only loads a show's episodes when someone opens it. The plugin
-  fetches the missing ones, one show at a time with a pause between requests, and again when the
-  provider changes a show.
+- **Episode lists**: Dispatcharr only loads a show's episodes from the IPTV provider when someone
+  opens the show. The plugin asks the provider for the missing ones, one show at a time with a
+  pause between requests, just before writing that show, and again when the provider changes a
+  show. A request that fails is retried once after 10 seconds; the failed list shows the reason
+  (for example a timeout). Turn **Ask the IPTV provider for missing episode lists** off to keep the
+  plugin away from the provider entirely: then only shows Dispatcharr already has episodes for get
+  files. Movies never need the provider.
+- **Log**: the dashboard's log, Dispatcharr's container log (lines start with `STRM Sync:`), and
+  `strm-sync.log` at the top of the STRM folder, next to `Movies` and `Shows`.
 - **Only what changed is written.** A file that already holds the right address is left alone,
   so the media server does not rescan it.
 - **Clean-up**: files for titles Dispatcharr no longer has are removed. Only `.strm` files this

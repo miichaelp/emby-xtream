@@ -184,8 +184,23 @@ def test_fetch_episodes_reads_the_outcome_back(world):
     _, error = _series(world, "Error", world.main, world.drama, "error", fetched=True, last_modified="5")
     vod_tasks.behaviour.update({"nothing": "empty", "error": "error"})
     src = source()
-    assert src.fetch_episodes({"relation_id": ok.id}) is True
-    assert src.fetch_episodes({"relation_id": nothing.id}) is False
-    # Already loaded, provider errors on the re-check: not counted as answered, so it is asked again.
-    assert src.fetch_episodes({"relation_id": error.id}) is False
+    assert src.fetch_episodes({"relation_id": ok.id}) == ("ok", "")
+    assert src.fetch_episodes({"relation_id": nothing.id}) == ("empty", "")
+    # Already loaded, provider times out on the re-check: an error with Dispatcharr's own reason.
+    assert src.fetch_episodes({"relation_id": error.id}) == ("error", "The provider did not answer within 60 seconds")
     assert vod_tasks.calls == ["ok", "nothing", "error"]
+
+
+@pytest.mark.parametrize("message,expected", [
+    ("Error refreshing episodes for series X: HTTPConnectionPool(host='p', port=80): Read timed out.", "within 60 seconds"),
+    ("Failed to get series info: 429 Client Error: Too Many Requests for url", "HTTP 429"),
+    ("Failed to get series info: 502 Server Error: Bad Gateway for url", "HTTP 502"),
+    ("Error refreshing episodes for series X: HTTPConnectionPool(host='p'): Max retries exceeded", "connect"),
+    ("Invalid series info response for series_id 5: []", "not a valid episode list"),
+    ("", "did not answer"),
+    ("Error refreshing episodes for series X: something odd", "something odd"),
+])
+def test_friendly_error(message, expected):
+    from strm_sync.source import friendly_error
+
+    assert expected in friendly_error(message)

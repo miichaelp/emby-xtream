@@ -285,3 +285,19 @@ def test_ensure_output_dir_explains_a_missing_mapping(monkeypatch):
 def test_top_folder_is_refused():
     assert any("top folder" in p for p in Settings({"output_dir": "/", "base_url": BASE}).problems())
     assert Settings({"output_dir": "/strm/", "base_url": BASE}).output_dir == "/strm"
+
+
+def test_the_log_is_also_written_into_the_strm_folder(env):
+    env["raw"]["xc_password"] = "s3cretpw"
+    runtime.log.info("before the sync")                  # not in the STRM folder: no folder known yet
+    tasks.run_sync()
+    runtime.log.info("password s3cretpw in a line")
+    for handler in runtime.log.handlers:
+        handler.flush()
+    text = (env["out"] / "strm-sync.log").read_text()
+    assert "Sync started (manual)" in text and "Added movie: Heat (1 file)" in text
+    assert "s3cretpw" not in text and "password *** in a line" in text
+    assert "before the sync" not in text
+    # A second run keeps one handler, not two.
+    tasks.run_sync()
+    assert sum(1 for h in runtime.log.handlers if getattr(h, "_strm_sync_output", None)) == 1

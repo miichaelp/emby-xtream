@@ -1,6 +1,6 @@
 {
   "name": "STRM Sync",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Writes .strm files for Dispatcharr's movies and series by hand, after each M3U refresh or on a schedule, so Emby, Jellyfin or Plex can add them as normal libraries. Open the dashboard with the Docs link.",
   "author": "emby-xtream",
   "help_url": "/logos/strm_sync/index.html",
@@ -35,7 +35,7 @@
     { "id": "xc_password", "label": "That user's Xtream password (Xtream URL only)", "type": "string", "input_type": "password", "default": "", "help_text": "The XC password from the user's profile in Dispatcharr, not an admin login. It is written into the .strm files." },
 
     { "id": "h_series", "type": "info", "label": "Episode lists", "description": "Dispatcharr only loads a show's episodes when someone opens it. The plugin asks for the missing ones, one show at a time, and again when the provider changes a show." },
-    { "id": "fetch_episodes", "label": "Fetch missing episode lists from the provider", "type": "boolean", "default": true },
+    { "id": "fetch_episodes", "label": "Ask the IPTV provider for missing episode lists", "type": "boolean", "default": true, "help_text": "Off: no requests go to your IPTV provider, and only shows whose episodes Dispatcharr already has (shows someone has opened) get files. Movies never need the provider." },
     { "id": "episode_fetch_limit", "label": "Most shows to fetch per sync (0 = no limit)", "type": "number", "default": 0, "help_text": "The first sync asks the provider once per show. Set a limit to spread a large catalogue over several syncs." },
     { "id": "episode_fetch_delay_ms", "label": "Pause between provider requests (ms)", "type": "number", "default": 250 },
 

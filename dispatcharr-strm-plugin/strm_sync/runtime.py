@@ -58,6 +58,45 @@ def setup_logging():
     return log
 
 
+OUTPUT_LOG_NAME = "strm-sync.log"
+
+
+def add_output_log(output_dir, secrets=()):
+    """Also writes the log next to the Movies and Shows folders, where it is easy to open.
+
+    Lives at the top of the STRM folder, outside Movies and Shows, so media
+    servers do not see it. Secrets are blanked out as lines are written.
+    """
+    path = os.path.join(output_dir, OUTPUT_LOG_NAME)
+    for handler in list(log.handlers):
+        if getattr(handler, "_strm_sync_output", None) is not None:
+            if handler._strm_sync_output == path:
+                return log
+            log.removeHandler(handler)
+            handler.close()
+    try:
+        handler = RotatingFileHandler(path, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+    except OSError as exc:
+        log.warning("Could not write the log to %s: %s", path, exc)
+        return log
+    handler.setFormatter(_RedactingFormatter("%(asctime)s %(levelname)s %(message)s", secrets))
+    handler._strm_sync_output = path
+    log.addHandler(handler)
+    return log
+
+
+class _RedactingFormatter(logging.Formatter):
+    def __init__(self, fmt, secrets):
+        super().__init__(fmt)
+        self.secrets = [s for s in secrets if s and len(s) >= 4]
+
+    def format(self, record):
+        text = super().format(record)
+        for secret in self.secrets:
+            text = text.replace(secret, "***")
+        return text
+
+
 def read_log(max_lines=2000, secrets=(), name="sync.log"):
     """The tail of a log file in the data folder, with the given secrets blanked out."""
     path = os.path.join(data_dir(), name)

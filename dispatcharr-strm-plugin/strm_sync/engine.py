@@ -323,24 +323,44 @@ class Engine:
             if self.counters_fetched and self.s.episode_fetch_delay_ms:
                 self.sleep(self.s.episode_fetch_delay_ms / 1000.0)
             self.counters_fetched += 1
-            try:
-                ok = self.source.fetch_episodes(item)
-            except Exception as exc:
-                ok = False
-                self.log.warning("Episode list for '%s' failed: %s", item.get("name"), exc)
-            if ok:
+            status, reason = self._fetch_one(item)
+            if status == "error" and not self._stop_requested():
+                # Most failures are a slow or busy provider: one more try after a short wait.
+                self.log.info("Episode list of '%s' failed (%s); trying once more in %d s",
+                              item.get("name"), reason, int(self.RETRY_WAIT))
+                self.sleep(self.RETRY_WAIT)
+                status, reason = self._fetch_one(item)
+            if status == "ok":
                 answered = True
                 known[str(item["relation_id"])] = item.get("last_modified") or ""
                 self.log.info("Fetched the episode list of '%s' from the provider", item.get("name"))
+            elif status == "empty":
+                # Not a failure: the provider lists the show without episodes. Dispatcharr asks
+                # again after a day, and so do we.
+                self.log.info("The provider has no episodes for '%s' yet", item.get("name"))
             else:
                 counters["lists_failed"] += 1
+                self.log.warning("Episode list of '%s' failed: %s", item.get("name"), reason)
                 self.failed_items.append({
                     "kind": "series",
                     "id": item.get("series_id"),
                     "name": item.get("name") or "",
-                    "error": "The provider returned no episode list",
+                    "error": reason,
                 })
         return answered
+
+    RETRY_WAIT = 10.0
+
+    def _fetch_one(self, item):
+        try:
+            outcome = self.source.fetch_episodes(item)
+        except Exception as exc:
+            return "error", str(exc)[:200] or exc.__class__.__name__
+        if outcome is True:
+            return "ok", ""
+        if outcome is False or outcome is None:
+            return "error", "The provider did not answer"
+        return outcome
 
     def sync_series(self, state, only_ids=None):
         stats = new_stats()

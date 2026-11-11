@@ -15,6 +15,61 @@ from itertools import groupby
 CHUNK = 2000
 
 
+class capture_errors:
+    """Collects the ERROR messages the given loggers emit while the block runs."""
+
+    def __init__(self, names):
+        import logging
+
+        self.names = names
+        self.messages = []
+        outer = self
+
+        class _Handler(logging.Handler):
+            def emit(self, record):
+                try:
+                    outer.messages.append(record.getMessage())
+                except Exception:
+                    pass
+
+        self.handler = _Handler(level=logging.ERROR)
+
+    def __enter__(self):
+        import logging
+
+        for name in self.names:
+            logging.getLogger(name).addHandler(self.handler)
+        return self.messages
+
+    def __exit__(self, *_exc):
+        import logging
+
+        for name in self.names:
+            logging.getLogger(name).removeHandler(self.handler)
+        return False
+
+
+def friendly_error(message):
+    """The provider error Dispatcharr logged, in the user's words."""
+    text = (message or "").strip()
+    low = text.lower()
+    if not text:
+        return "The provider did not answer"
+    if "timed out" in low or "timeout" in low:
+        return "The provider did not answer within 60 seconds"
+    if "max retries exceeded" in low or "connection" in low and ("refused" in low or "reset" in low or "aborted" in low):
+        return "Could not connect to the provider"
+    for code in ("401", "403", "404", "429", "500", "502", "503", "504", "512", "513", "884"):
+        if f" {code} " in f" {low} " or f"{code} client error" in low or f"{code} server error" in low:
+            if code == "429":
+                return "The provider is limiting requests (HTTP 429): try a longer pause between requests"
+            return f"The provider answered with an error (HTTP {code})"
+    if "invalid series info" in low or "json" in low:
+        return "The provider sent an answer that is not a valid episode list"
+    # Dispatcharr's messages start with its own context; keep the end, which names the cause.
+    return text.split(": ", 2)[-1][:200]
+
+
 class DispatcharrSource:
     def __init__(self, log):
         self.log = log
@@ -231,14 +286,24 @@ class DispatcharrSource:
         return pending
 
     def fetch_episodes(self, item):
-        """Has Dispatcharr load one show's episodes from its provider. True when it answered."""
+        """Has Dispatcharr load one show's episodes from its provider.
+
+        Returns ("ok", ""), ("empty", "") when the provider answered without
+        episodes, or ("error", reason). Dispatcharr logs and swallows provider
+        errors in refresh_series_episodes, so the outcome is read back from the
+        relation and the reason from the error it logged.
+        """
         from apps.vod.models import M3USeriesRelation
         from apps.vod.tasks import refresh_series_episodes
 
         relation = M3USeriesRelation.objects.select_related("series", "m3u_account").get(id=item["relation_id"])
         before = relation.last_episode_refresh
-        # Dispatcharr logs and swallows provider errors here, so the outcome is read back.
-        refresh_series_episodes(relation.m3u_account, relation.series, relation.external_series_id)
+        with capture_errors(("apps.vod.tasks", "core.xtream_codes")) as errors:
+            refresh_series_episodes(relation.m3u_account, relation.series, relation.external_series_id)
         relation.refresh_from_db(fields=["custom_properties", "last_episode_refresh"])
         props = relation.custom_properties if isinstance(relation.custom_properties, dict) else {}
-        return bool(props.get("episodes_fetched")) and relation.last_episode_refresh != before
+        if relation.last_episode_refresh == before:
+            return "error", friendly_error(errors[0] if errors else "")
+        if not props.get("episodes_fetched"):
+            return "empty", ""
+        return "ok", ""

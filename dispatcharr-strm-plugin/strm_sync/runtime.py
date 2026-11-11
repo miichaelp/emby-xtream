@@ -49,7 +49,7 @@ def setup_logging():
         return log
     try:
         handler = RotatingFileHandler(
-            os.path.join(data_dir(), "sync.log"), maxBytes=1_000_000, backupCount=2, encoding="utf-8")
+            os.path.join(data_dir(), "sync.log"), maxBytes=5_000_000, backupCount=3, encoding="utf-8")
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
         handler._strm_sync = True
         log.addHandler(handler)

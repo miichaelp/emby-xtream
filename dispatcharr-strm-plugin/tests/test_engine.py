@@ -282,3 +282,24 @@ def test_changing_the_address_never_deletes_the_old_files_blindly(tmp_path):
     assert read(tmp_path / "Movies/Heat/Heat.strm") == "http://new:9191/proxy/vod/movie/m-1"
     assert (tmp_path / "Movies/Ronin/Ronin.strm").exists() and result["movies"]["deleted"] == 0
     assert core.is_owned_strm(str(tmp_path / "Movies/Heat/Heat.strm"), core.owned_url_prefixes("http://new:9191"))
+
+
+def test_log_names_every_written_title_and_reports_progress(tmp_path, caplog):
+    import logging
+
+    src = FakeSource(movies=[movie(i, f"Movie {i}") for i in range(1, 5)],
+                     shows=[show(1, "Show", [episode(1, 1, 1), episode(2, 1, 2)])])
+    engine = Engine(settings(tmp_path), src, FakeControl(), LOG, sleep=lambda s: None)
+    ticks = iter(range(0, 1000, 20))                       # every call is 20 s later
+    engine.clock = lambda: next(ticks)
+    with caplog.at_level(logging.INFO, logger=LOG.name):
+        engine.run({})
+    text = caplog.text
+    assert "Added movie: Movie 1 (1 file)" in text and "Added movie: Movie 4 (1 file)" in text
+    assert "Added show: Show (2 of 2 episodes new or changed)" in text
+    assert "Movies: 3 of 4 done (3 new" in text and "per second, about" in text
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger=LOG.name):
+        Engine(settings(tmp_path), src, FakeControl(), LOG, sleep=lambda s: None).run({})
+    assert "Added movie" not in caplog.text and "Updated" not in caplog.text   # unchanged titles stay quiet

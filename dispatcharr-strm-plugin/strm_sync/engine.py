@@ -112,6 +112,16 @@ def new_stats():
     }
 
 
+def _duration(seconds):
+    seconds = int(max(seconds, 0))
+    if seconds < 90:
+        return f"{seconds} s"
+    minutes = seconds // 60
+    if minutes < 90:
+        return f"{minutes} min"
+    return f"{minutes // 60} h {minutes % 60} min"
+
+
 class Engine:
     def __init__(self, settings, source, control, log, sleep=time.sleep):
         self.s = settings
@@ -125,6 +135,9 @@ class Engine:
         self.added_titles = []
         self.stopped = False
         self.counters_fetched = 0
+        self.clock = time.monotonic
+        self._beat_label = None
+        self._beat_start = self._beat_last = 0.0
 
     # ---- helpers -----------------------------------------------------------------
 
@@ -183,6 +196,23 @@ class Engine:
                 outcome = "updated"
         return outcome
 
+    def _heartbeat(self, label, stats, total, every=30.0):
+        """A progress line in the log every 30 seconds, with speed and time left."""
+        now = self.clock()
+        if self._beat_label != label:
+            self._beat_label, self._beat_start, self._beat_last = label, now, now
+            return
+        if now - self._beat_last < every or not stats["total"]:
+            return
+        self._beat_last = now
+        rate = stats["total"] / max(now - self._beat_start, 0.001)
+        left = (total - stats["total"]) / rate if rate > 0 else 0
+        self.log.info(
+            "%s: %d of %d done (%d new, %d changed, %d unchanged, %d skipped, %d failed), "
+            "%.1f per second, about %s left",
+            label, stats["total"], total, stats["added"], stats["updated"], stats["unchanged"],
+            stats["skipped"], stats["failed"], rate, _duration(left))
+
     def _count(self, stats, outcome):
         stats[{"added": "added", "updated": "updated", "same": "unchanged"}[outcome]] += 1
 
@@ -215,6 +245,7 @@ class Engine:
                 except Exception as exc:  # one bad title must not end the run
                     self._fail("movie", movie, exc, stats)
                 self.control.progress("movies", "Writing movies", stats["total"], total, stats)
+                self._heartbeat("Movies", stats, total)
         except Exception as exc:
             complete = False
             self.warnings.append(f"Reading movies from Dispatcharr failed: {exc}")
@@ -256,6 +287,9 @@ class Engine:
         self._count(stats, outcome)
         if outcome == "added" and len(self.added_titles) < 20:
             self.added_titles.append(title)
+        if outcome != "same":
+            self.log.info("%s movie: %s (%d file%s)", "Added" if outcome == "added" else "Updated",
+                          title, len(urls), "" if len(urls) == 1 else "s")
 
     # ---- series ------------------------------------------------------------------
 
@@ -297,6 +331,7 @@ class Engine:
             if ok:
                 answered = True
                 known[str(item["relation_id"])] = item.get("last_modified") or ""
+                self.log.info("Fetched the episode list of '%s' from the provider", item.get("name"))
             else:
                 counters["lists_failed"] += 1
                 self.failed_items.append({
@@ -338,6 +373,7 @@ class Engine:
                     except Exception as exc:
                         self._fail("series", show, exc, stats)
                     self.control.progress("series", "Writing series", stats["total"], total, stats)
+                    self._heartbeat("Series", stats, total)
         except Exception as exc:
             complete = False
             self.warnings.append(f"Reading series from Dispatcharr failed: {exc}")
@@ -376,6 +412,7 @@ class Engine:
 
         outcome = "same"
         seen_codes = set()
+        changed_episodes = 0
         for ep in show["episodes"]:
             if not ep.get("versions"):
                 continue
@@ -393,6 +430,8 @@ class Engine:
             result = self._write_files(season_dir, base, urls, written, stats)
             episodes["total"] += 1
             episodes["files_added"] += stats["files_added"] - before
+            if result != "same":
+                changed_episodes += 1
             if result == "added":
                 outcome = "added"
             elif result == "updated" and outcome != "added":
@@ -409,6 +448,9 @@ class Engine:
         self._count(stats, outcome)
         if outcome == "added" and len(self.added_titles) < 20:
             self.added_titles.append(title)
+        if outcome != "same":
+            self.log.info("%s show: %s (%d of %d episodes new or changed)",
+                          "Added" if outcome == "added" else "Updated", title, changed_episodes, len(seen_codes))
 
     # ---- cleanup -----------------------------------------------------------------
 

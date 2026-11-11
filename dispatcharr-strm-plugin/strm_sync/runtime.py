@@ -23,6 +23,7 @@ K_STOP = "strm_sync:stop"
 K_PROGRESS = "strm_sync:progress"
 K_RERUN = "strm_sync:rerun"
 K_QUEUED = "strm_sync:queued"
+K_SCHEDULE_CHECK = "strm_sync:schedule_check"
 LOCK_TTL = 900
 MAX_HISTORY = 10
 
@@ -57,9 +58,9 @@ def setup_logging():
     return log
 
 
-def read_log(max_lines=2000, secrets=()):
-    """The tail of the log with the given secrets blanked out."""
-    path = os.path.join(data_dir(), "sync.log")
+def read_log(max_lines=2000, secrets=(), name="sync.log"):
+    """The tail of a log file in the data folder, with the given secrets blanked out."""
+    path = os.path.join(data_dir(), name)
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             lines = fh.readlines()[-max_lines:]
@@ -250,6 +251,67 @@ def mark_queued(redis):
 
 def clear_queued(redis):
     redis.delete(K_QUEUED)
+
+
+# ---- the sync process ---------------------------------------------------------
+
+def python_executable():
+    """The Python of Dispatcharr's environment.
+
+    In the web process sys.executable is the uWSGI or Gunicorn binary, not Python.
+    """
+    import shutil
+    import sys
+
+    candidates = []
+    if os.path.basename(sys.executable or "").startswith("python"):
+        candidates.append(sys.executable)
+    for prefix in (sys.prefix, os.environ.get("VIRTUAL_ENV", ""), "/dispatcharrpy"):
+        if prefix:
+            candidates += [os.path.join(prefix, "bin", "python3"), os.path.join(prefix, "bin", "python")]
+    found = shutil.which("python3")
+    if found:
+        candidates.append(found)
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    raise RuntimeError("Could not find Dispatcharr's Python to start the sync")
+
+
+def project_dir():
+    """Dispatcharr's code folder (where manage.py is), for the sync process to import from."""
+    try:
+        from django.conf import settings
+
+        return str(settings.BASE_DIR)
+    except Exception:
+        return "/app"
+
+
+def spawn(job):
+    """Starts runner.py with the job, detached, and returns at once.
+
+    The shell starts the runner in the background and exits, so the runner is
+    adopted by the container's init and nothing here waits for it. Its output
+    goes to runner.log in the data folder, for when it fails before logging.
+    """
+    import subprocess
+
+    runner = os.path.join(PLUGIN_DIR, "runner.py")
+    out = os.path.join(data_dir(), "runner.log")
+    try:
+        if os.path.getsize(out) > 1_000_000:
+            os.remove(out)
+    except OSError:
+        pass
+    env = dict(os.environ)
+    env.setdefault("DJANGO_SETTINGS_MODULE", "dispatcharr.settings")
+    env["STRM_SYNC_DATA_DIR"] = data_dir()
+    subprocess.run(
+        ["sh", "-c", 'nohup "$0" "$@" >>"$STRM_SYNC_RUNNER_LOG" 2>&1 </dev/null &',
+         python_executable(), runner, project_dir(), json.dumps(job)],
+        cwd=project_dir(), env=dict(env, STRM_SYNC_RUNNER_LOG=out), check=True, timeout=30,
+    )
 
 
 # ---- dashboard page ------------------------------------------------------------

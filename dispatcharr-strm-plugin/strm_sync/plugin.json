@@ -1,11 +1,11 @@
 {
   "name": "STRM Sync",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Writes .strm files for Dispatcharr's movies and series by hand, after each M3U refresh or on a schedule, so Emby, Jellyfin or Plex can add them as normal libraries. Open the dashboard with the Docs link.",
   "author": "emby-xtream",
   "help_url": "/logos/strm_sync/index.html",
   "fields": [
-    { "id": "h_basic", "type": "info", "label": "Where the files go", "description": "Dashboard: open /logos/strm_sync/index.html on this Dispatcharr address (the Docs link above). After enabling the plugin for the first time, restart Dispatcharr once." },
+    { "id": "h_basic", "type": "info", "label": "Where the files go", "description": "Dashboard: open /logos/strm_sync/index.html on this Dispatcharr address (the Docs link above). Syncing by hand works straight away. For the automatic and scheduled syncs, restart Dispatcharr once after enabling or updating the plugin." },
     { "id": "output_dir", "label": "STRM folder (inside the Dispatcharr container)", "type": "string", "default": "/data/strm", "help_text": "Movies go to <folder>/Movies and series to <folder>/Shows. Map this folder to a place your media server can read." },
     { "id": "base_url", "label": "Dispatcharr address as your media server reaches it", "type": "string", "default": "", "placeholder": "http://192.168.0.11:9191", "help_text": "Written into every .strm file. Use an address that works from the Emby machine, not localhost unless both run on the same machine." },
     { "id": "sync_movies", "label": "Sync movies", "type": "boolean", "default": true },

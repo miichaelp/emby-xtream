@@ -1,8 +1,14 @@
-"""Celery tasks and the hook that starts a sync after Dispatcharr refreshes VOD.
+"""Starting syncs: by hand, after Dispatcharr's VOD refresh, and on a schedule.
 
-Dispatcharr imports enabled plugins when each Celery worker process starts, so
-the tasks and the hook below exist in the workers from then on. After the
-plugin is enabled for the first time, Dispatcharr has to be restarted once.
+A sync runs as its own process (runner.py), not as a Celery task. Dispatcharr
+only loads plugins in its Celery worker's child processes, so the parent that
+receives tasks rejects a plugin's tasks as "unregistered". A separate process
+also keeps a long sync out of Dispatcharr's web and worker processes.
+
+What this module does need from Celery is a signal: after every task a worker
+child runs, the hook at the bottom checks whether Dispatcharr just finished a
+VOD refresh, and whether the schedule says a sync is due. Dispatcharr runs a
+file scan every 20 seconds, so the hook gets a chance at least that often.
 """
 
 import json
@@ -10,16 +16,15 @@ import os
 import time
 from datetime import datetime, timezone
 
-from celery import shared_task
 from celery.signals import task_postrun
 
 from . import core, runtime
 from .engine import MOVIES_DIR, SHOWS_DIR, Engine, Settings
 
 VOD_REFRESH_TASK = "apps.vod.tasks.refresh_vod_content"
-TICK_TASK = "strm_sync.schedule_tick"
-TICK_NAME = "STRM Sync: schedule check"
-TICK_MINUTES = 5
+# The beat entry version 0.2.0 created; its task can never be registered (see above).
+OLD_TICK_NAME = "STRM Sync: schedule check"
+SCHEDULE_CHECK_SECONDS = 60
 ALL_KINDS = ("movies", "series")
 
 
@@ -44,21 +49,23 @@ def _iso(ts):
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
-def _queue(task, **kwargs):
-    countdown = kwargs.pop("countdown", 0)
+def _queue(job):
     runtime.mark_queued(runtime.redis_client())
-    task.apply_async(kwargs=kwargs, countdown=countdown)
+    try:
+        runtime.spawn(job)
+    except Exception:
+        runtime.clear_queued(runtime.redis_client())
+        raise
 
 
 def queue_sync(kinds=ALL_KINDS, trigger="manual", only=None, countdown=0):
-    _queue(run_sync, kinds=list(kinds), trigger=trigger, only=only, countdown=countdown)
+    _queue({"job": "sync", "kinds": list(kinds), "trigger": trigger, "only": only, "delay": countdown})
 
 
 def queue_delete(kinds):
-    _queue(run_delete, kinds=list(kinds))
+    _queue({"job": "delete", "kinds": list(kinds)})
 
 
-@shared_task(name="strm_sync.run_sync")
 def run_sync(kinds=None, trigger="manual", only=None):
     """One sync run. kinds: ["movies", "series"]; only: ids per kind for a retry."""
     log = runtime.setup_logging()
@@ -157,7 +164,6 @@ def _finish(state, settings, control, result, error, kinds, trigger, only, start
     runtime.save_state(state)
 
 
-@shared_task(name="strm_sync.run_delete")
 def run_delete(kinds=None):
     """Removes every .strm this plugin wrote for the given kinds. Foreign files stay."""
     log = runtime.setup_logging()
@@ -219,38 +225,27 @@ def last_run_start(state):
         return None
 
 
-def ensure_schedule_task():
-    """Creates the beat entry that runs schedule_tick every few minutes. Safe to call often.
+def remove_old_schedule_entry():
+    """Deletes the beat entry 0.2.0 made, which only produced "unregistered task" errors."""
+    from django_celery_beat.models import PeriodicTask
 
-    Dispatcharr disables this entry with the plugin and deletes it with the plugin.
-    """
-    from django_celery_beat.models import IntervalSchedule, PeriodicTask
-
-    existing = PeriodicTask.objects.filter(name=TICK_NAME).first()
-    if existing is not None and existing.task == TICK_TASK:
-        return False
-    interval, _ = IntervalSchedule.objects.get_or_create(every=TICK_MINUTES, period=IntervalSchedule.MINUTES)
-    PeriodicTask.objects.update_or_create(
-        name=TICK_NAME,
-        defaults={"task": TICK_TASK, "interval": interval, "crontab": None, "clocked": None,
-                  "solar": None, "one_off": False, "enabled": True},
-    )
-    return True
+    return PeriodicTask.objects.filter(name=OLD_TICK_NAME).delete()[0]
 
 
-@shared_task(name=TICK_TASK)
-def schedule_tick():
-    """Run by Celery beat every few minutes; starts a sync when the schedule says so."""
+def check_schedule():
+    """Starts a scheduled sync when one is due. Returns what it did, for the log and tests."""
     from . import schedule
 
     settings, enabled = load_settings()
     if not enabled or settings.schedule == "off" or settings.problems():
         return "Not scheduled"
     state = runtime.load_state()
+    before = json.dumps(state.get("schedule") or {}, sort_keys=True)
     sched = state.setdefault("schedule", {})
     due = schedule.check(settings.schedule, settings.schedule_hours, settings.schedule_time,
                          local_now(), sched, last_run_start(state))
-    runtime.save_state(state)
+    if json.dumps(sched, sort_keys=True) != before:
+        runtime.save_state(state)
     if not due:
         return "Not due"
     if runtime.read_progress(runtime.redis_client()).get("running"):
@@ -272,13 +267,20 @@ def next_scheduled_run(settings, state):
 
 
 def _on_task_finished(sender=None, task=None, retval=None, **_kwargs):
-    """Runs in the Celery worker after every task; acts only on Dispatcharr's VOD refresh.
+    """Runs in a Celery worker child after every task.
 
-    An M3U account refresh ends by queueing this VOD refresh, so "after it" is
-    the first moment the new movies and series are in the database.
+    After Dispatcharr's VOD refresh (which an M3U account refresh ends by
+    queueing, so the new movies and series are in the database) it starts a
+    sync. After any task, at most once a minute across all workers, it checks
+    the schedule.
     """
     name = getattr(task or sender, "name", "")
     if name != VOD_REFRESH_TASK:
+        try:
+            if runtime.redis_client().set(runtime.K_SCHEDULE_CHECK, "1", nx=True, ex=SCHEDULE_CHECK_SECONDS):
+                check_schedule()
+        except Exception:
+            runtime.log.exception("Schedule check failed")
         return
     if isinstance(retval, str) and "failed" in retval.lower():
         return  # Dispatcharr reports a failed refresh through its return value

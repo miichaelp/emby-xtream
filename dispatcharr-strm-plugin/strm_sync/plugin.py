@@ -24,14 +24,10 @@ class Plugin:
     def __init__(self):
         runtime.setup_logging()
         runtime.install_dashboard()
-        self._ensure_schedule()
-
-    @staticmethod
-    def _ensure_schedule():
         try:
-            tasks.ensure_schedule_task()
+            tasks.remove_old_schedule_entry()
         except Exception as exc:  # the database may not be ready during startup discovery
-            runtime.log.debug("Schedule entry not created yet: %s", exc)
+            runtime.log.debug("Old schedule entry not checked: %s", exc)
 
     # ---- actions -----------------------------------------------------------------
 
@@ -121,7 +117,6 @@ class Plugin:
     # ---- dashboard (called by the page, not shown as buttons) ---------------------
 
     def _do_dashboard(self, params):
-        self._ensure_schedule()
         settings, enabled = tasks.load_settings()
         state = runtime.load_state()
         try:
@@ -162,6 +157,10 @@ class Plugin:
 
     def _do_log(self, params):
         settings, _enabled = tasks.load_settings()
-        text = runtime.read_log(secrets=(settings.xc_password, settings.emby_api_key))
+        secrets = (settings.xc_password, settings.emby_api_key)
+        text = runtime.read_log(secrets=secrets)
+        runner = runtime.read_log(name="runner.log", max_lines=200, secrets=secrets).strip()
+        if runner:
+            text += "\n----- background process output -----\n" + runner + "\n"
         return {"status": "ok", "log": text}
 

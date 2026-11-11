@@ -203,29 +203,29 @@ def test_log_hides_secrets(env):
     assert "s3cretpw" not in text and "/movie/emby/***/7.mkv" in text
 
 
-def test_schedule_tick_queues_a_sync_when_due(env, monkeypatch):
+def test_check_schedule_queues_a_sync_when_due(env, monkeypatch):
     from datetime import datetime, timedelta, timezone as tz
 
     clock = {"now": datetime(2026, 11, 11, 10, tzinfo=tz.utc)}
     monkeypatch.setattr(tasks, "local_now", lambda: clock["now"])
 
-    assert tasks.schedule_tick() == "Not scheduled"                    # schedule off by default
+    assert tasks.check_schedule() == "Not scheduled"                    # schedule off by default
     env["raw"].update(schedule="interval", schedule_hours=2)
-    assert tasks.schedule_tick() == "Not due"                          # first check: clock starts
+    assert tasks.check_schedule() == "Not due"                          # first check: clock starts
     clock["now"] += timedelta(hours=2)
-    assert tasks.schedule_tick() == "Queued"
+    assert tasks.check_schedule() == "Queued"
     assert env["queued"][-1][1] == {"trigger": "schedule"}
-    assert tasks.schedule_tick() == "Not due"
+    assert tasks.check_schedule() == "Not due"
 
     clock["now"] += timedelta(hours=2)
     other = runtime.Control(env["redis"])
     other.acquire()
-    assert tasks.schedule_tick() == "Already running"
+    assert tasks.check_schedule() == "Already running"
     other.release()
     assert len(env["queued"]) == 1
 
     env["raw"].update(schedule="daily", schedule_time="25:00")
-    assert tasks.schedule_tick() == "Not scheduled"                    # bad time is a settings problem
+    assert tasks.check_schedule() == "Not scheduled"                    # bad time is a settings problem
 
 
 def test_scheduled_run_is_recorded_and_respects_the_switch(env):
@@ -242,3 +242,18 @@ def test_schedule_settings_problems():
     assert any("24-hour" in p for p in Settings(dict(base, schedule="daily", schedule_time="3pm")).problems())
     assert Settings(dict(base, schedule="daily", schedule_time="03:00")).problems() == []
     assert Settings(dict(base, schedule="weekly")).schedule == "off"
+
+
+def test_the_worker_hook_checks_the_schedule_at_most_once_a_minute(env, monkeypatch):
+    checks = []
+    monkeypatch.setattr(tasks, "check_schedule", lambda: checks.append(1))
+
+    class Task:
+        name = "core.tasks.scan_and_process_files"
+
+    for _ in range(5):
+        tasks._on_task_finished(task=Task())
+    assert checks == [1]
+    env["redis"].delete(runtime.K_SCHEDULE_CHECK)        # a minute later
+    tasks._on_task_finished(task=Task())
+    assert checks == [1, 1]

@@ -286,8 +286,7 @@
       $('p-bar').classList.add('indeterminate');
       $('p-bar').firstElementChild.style.width = '';
       $('p-detail').textContent = p.queued_for > 20
-        ? 'Still waiting. If the plugin was only just enabled or updated, restart Dispatcharr once so its ' +
-          'background workers load it.'
+        ? 'The sync has not started. Open the log below: its last part shows the background process output.'
         : '';
       $('btn-stop').classList.add('hidden');
     }

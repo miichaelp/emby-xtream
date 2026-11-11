@@ -17,7 +17,7 @@ def plugin(tmp_path, monkeypatch):
     monkeypatch.setattr(tasks, "queue_sync", lambda kinds, **k: box["sync"].append((list(kinds), k)))
     monkeypatch.setattr(tasks, "queue_delete", lambda kinds: box["delete"].append(list(kinds)))
     box["ensured"] = []
-    monkeypatch.setattr(tasks, "ensure_schedule_task", lambda: box["ensured"].append(1))
+    monkeypatch.setattr(tasks, "remove_old_schedule_entry", lambda: box["ensured"].append(1))
     monkeypatch.setattr(tasks, "next_scheduled_run", lambda settings, state: None)
     from strm_sync.plugin import Plugin
 
@@ -87,7 +87,7 @@ def test_stop_hook_requests_a_stop(plugin):
     assert plugin["redis"].exists(runtime.K_STOP)
 
 
-def test_the_schedule_entry_is_ensured_on_load_and_on_dashboard(plugin):
+def test_the_old_schedule_entry_is_removed_once_on_load(plugin):
     assert plugin["ensured"] == [1]
     run(plugin, "dashboard")
-    assert plugin["ensured"] == [1, 1]
+    assert plugin["ensured"] == [1]

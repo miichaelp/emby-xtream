@@ -48,8 +48,9 @@ sync makes no requests to Dispatcharr's API and cannot overload it.
 ## Install
 
 1. In Dispatcharr open **Plugins**, click **Import** and upload `strm_sync.zip`. Enable the plugin.
-2. **Restart Dispatcharr once.** Its background workers only load a plugin when they start, and
-   they do the syncing.
+2. **Restart Dispatcharr once.** Syncing by hand works without it, but the sync after an M3U
+   refresh and the schedule are started from Dispatcharr's background workers, which only load a
+   plugin when they start. Restart again after updating the plugin.
 3. Make the STRM folder visible to your media server. The plugin writes inside the Dispatcharr
    container, to `/data/strm` by default. Map that path to a folder the media server can read, for
    example in `docker-compose.yml`:
@@ -110,12 +111,19 @@ pip install pytest fakeredis django celery
 python -m pytest tests
 ```
 
-`strm_sync/core.py`, `engine.py` and `schedule.py` have no Dispatcharr imports. The schedule is a
-Celery beat entry (*STRM Sync: schedule check*) that runs every 5 minutes and starts a sync when
-`schedule.py` says one is due; Dispatcharr disables it with the plugin and deletes it with the
-plugin. `source.py` holds the database
-queries, `runtime.py` the lock, progress and saved state, `tasks.py` the Celery tasks and the hook
-on Dispatcharr's `refresh_vod_content` task.
+`strm_sync/core.py`, `engine.py` and `schedule.py` have no Dispatcharr imports.
+
+A sync runs as its own process (`runner.py`), not as a Celery task: Dispatcharr loads plugins only
+in its Celery worker's child processes, so the parent that receives tasks rejects plugin tasks as
+unregistered. The runner presents itself to Dispatcharr as a Celery process, so it gets the normal
+database backend and skips the web process's start-up work. What the plugin does take from Celery
+is the `task_postrun` signal in the worker children: after Dispatcharr's `refresh_vod_content` it
+starts a sync, and after any task (Dispatcharr scans files every 20 seconds) it checks the
+schedule, at most once a minute. The background process's own output goes to `runner.log`, which
+the dashboard's log view includes.
+
+`source.py` holds the database queries, `runtime.py` the lock, progress, saved state and process
+start, `tasks.py` the sync and delete jobs and the Celery hook.
 
 Build the zip to import:
 

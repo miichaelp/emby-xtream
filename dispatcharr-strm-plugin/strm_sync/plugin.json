@@ -1,12 +1,12 @@
 {
   "name": "STRM Sync",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Writes .strm files for Dispatcharr's movies and series by hand, after each M3U refresh or on a schedule, so Emby, Jellyfin or Plex can add them as normal libraries. Open the dashboard with the Docs link.",
   "author": "emby-xtream",
   "help_url": "/logos/strm_sync/index.html",
   "fields": [
     { "id": "h_basic", "type": "info", "label": "Where the files go", "description": "Dashboard: open /logos/strm_sync/index.html on this Dispatcharr address (the Docs link above). Syncing by hand works straight away. For the automatic and scheduled syncs, restart Dispatcharr once after enabling or updating the plugin." },
-    { "id": "output_dir", "label": "STRM folder (inside the Dispatcharr container)", "type": "string", "default": "/data/strm", "help_text": "Movies go to <folder>/Movies and series to <folder>/Shows. Map this folder to a place your media server can read." },
+    { "id": "output_dir", "label": "STRM folder (inside the Dispatcharr container)", "type": "string", "default": "/strm", "help_text": "The right-hand side of the volume line in docker-compose.yml, for example /strm for '- C:/Users/you/STRM:/strm'. Movies go to <folder>/Movies and series to <folder>/Shows." },
     { "id": "base_url", "label": "Dispatcharr address as your media server reaches it", "type": "string", "default": "", "placeholder": "http://192.168.0.11:9191", "help_text": "Written into every .strm file. Use an address that works from the Emby machine, not localhost unless both run on the same machine." },
     { "id": "sync_movies", "label": "Sync movies", "type": "boolean", "default": true },
     { "id": "sync_series", "label": "Sync series", "type": "boolean", "default": true },

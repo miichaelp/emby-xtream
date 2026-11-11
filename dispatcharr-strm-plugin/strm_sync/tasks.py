@@ -67,6 +67,24 @@ def queue_delete(kinds):
     _queue({"job": "delete", "kinds": list(kinds)})
 
 
+def ensure_output_dir(path):
+    """Creates the STRM folder if it can, and explains in plain words when it cannot."""
+    if os.path.isdir(path):
+        if not os.access(path, os.W_OK):
+            raise RuntimeError(
+                f"Dispatcharr cannot write to the STRM folder {path}. Check the permissions of the folder "
+                "it is mapped to on your computer.")
+        return
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError:
+        raise RuntimeError(
+            f"The STRM folder {path} does not exist inside the Dispatcharr container. Map a folder on your "
+            f"computer to it in docker-compose.yml, for example "
+            f"'- C:/Users/you/STRM:{path}' under volumes, recreate the container, and use that same "
+            f"right-hand path here.") from None
+
+
 def run_sync(kinds=None, trigger="manual", only=None):
     """One sync run. kinds: ["movies", "series"]; only: ids per kind for a retry."""
     log = runtime.setup_logging()
@@ -104,7 +122,7 @@ def run_sync(kinds=None, trigger="manual", only=None):
     try:
         redis.delete(runtime.K_STOP)
         control.progress("", "Starting", 0, 0, force=True)
-        os.makedirs(settings.output_dir, exist_ok=True)
+        ensure_output_dir(settings.output_dir)
         from .source import DispatcharrSource
 
         log.info("Sync started (%s): %s", trigger, ", ".join(kinds))

@@ -43,7 +43,7 @@ class Settings:
 
     def __init__(self, raw):
         raw = raw or {}
-        self.output_dir = str(raw.get("output_dir") or "").strip()
+        self.output_dir = str(raw.get("output_dir") or "").strip().rstrip("/") or ("/" if str(raw.get("output_dir") or "").strip() else "")
         self.base_url = core.normalize_base_url(raw.get("base_url"))
         self.sync_movies = _as_bool(raw.get("sync_movies"), True)
         self.sync_series = _as_bool(raw.get("sync_series"), True)
@@ -80,7 +80,9 @@ class Settings:
         if not self.output_dir:
             out.append("Set the STRM folder in the plugin settings.")
         elif not os.path.isabs(self.output_dir):
-            out.append("The STRM folder must be a full path inside the Dispatcharr container, such as /data/strm.")
+            out.append("The STRM folder must be a full path inside the Dispatcharr container, such as /strm.")
+        elif self.output_dir == "/":
+            out.append("The STRM folder cannot be the container's top folder. Use the path from your volume line, such as /strm.")
         if not self.base_url:
             out.append("Set the Dispatcharr address that Emby uses, such as http://192.168.0.11:9191.")
         elif not self.base_url.lower().startswith(("http://", "https://")):

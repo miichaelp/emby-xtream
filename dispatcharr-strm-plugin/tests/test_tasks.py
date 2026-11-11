@@ -257,3 +257,31 @@ def test_the_worker_hook_checks_the_schedule_at_most_once_a_minute(env, monkeypa
     env["redis"].delete(runtime.K_SCHEDULE_CHECK)        # a minute later
     tasks._on_task_finished(task=Task())
     assert checks == [1, 1]
+
+
+def test_a_folder_that_cannot_be_created_is_explained(env, tmp_path):
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    env["raw"]["output_dir"] = str(locked / "STRMSync")
+    try:
+        if os.access(str(locked), os.W_OK):
+            pytest.skip("running as root: permissions are not enforced")
+        assert "does not exist inside the Dispatcharr container" in tasks.run_sync()
+    finally:
+        locked.chmod(0o700)
+
+
+def test_ensure_output_dir_explains_a_missing_mapping(monkeypatch):
+    def refuse(path, exist_ok=False):
+        raise PermissionError(13, "Permission denied", path)
+
+    monkeypatch.setattr(os, "makedirs", refuse)
+    with pytest.raises(RuntimeError) as err:
+        tasks.ensure_output_dir("/STRMSync-not-there")
+    assert "docker-compose.yml" in str(err.value) and ":/STRMSync-not-there" in str(err.value)
+
+
+def test_top_folder_is_refused():
+    assert any("top folder" in p for p in Settings({"output_dir": "/", "base_url": BASE}).problems())
+    assert Settings({"output_dir": "/strm/", "base_url": BASE}).output_dir == "/strm"

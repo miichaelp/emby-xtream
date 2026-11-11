@@ -51,14 +51,17 @@ sync makes no requests to Dispatcharr's API and cannot overload it.
 2. **Restart Dispatcharr once.** Syncing by hand works without it, but the sync after an M3U
    refresh and the schedule are started from Dispatcharr's background workers, which only load a
    plugin when they start. Restart again after updating the plugin.
-3. Make the STRM folder visible to your media server. The plugin writes inside the Dispatcharr
-   container, to `/data/strm` by default. Map that path to a folder the media server can read, for
-   example in `docker-compose.yml`:
+3. Map a folder on your computer into the container, in `docker-compose.yml` under `volumes:`,
+   and recreate the container (`docker compose up -d`):
 
    ```yaml
    volumes:
-     - "C:/Emby Media/STRM:/data/strm"
+     - "C:/Users/you/STRMSync:/strm"
    ```
+
+   The left side is the folder on your computer, the right side what Dispatcharr calls it. Set
+   **STRM folder** in the plugin settings to the right side (`/strm`, the default). Files written
+   there appear in the folder on your computer.
 
 4. In the plugin's settings set **Dispatcharr address as your media server reaches it**, for
    example `http://192.168.0.11:9191`. This address is written into every file, so it has to work

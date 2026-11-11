@@ -68,7 +68,7 @@ class Settings:
         self.excluded_categories = core.parse_terms(raw.get("excluded_categories"))
         self.fetch_episodes = _as_bool(raw.get("fetch_episodes"), True)
         self.episode_fetch_limit = int(_as_number(raw.get("episode_fetch_limit"), 0, 0))
-        self.episode_fetch_delay_ms = int(_as_number(raw.get("episode_fetch_delay_ms"), 250, 0, 60000))
+        self.episode_fetch_delay_ms = int(_as_number(raw.get("episode_fetch_delay_ms"), 1000, 0, 60000))
         self.cleanup_orphans = _as_bool(raw.get("cleanup_orphans"), True)
         self.safety_limit = _as_number(raw.get("safety_limit"), 20, 0, 100) / 100.0
         self.emby_url = core.normalize_base_url(raw.get("emby_url"))
@@ -137,6 +137,10 @@ class Engine:
         self.counters_fetched = 0
         self.last_fetch_seconds = 0.0
         self.known_dirs = set()
+        self.base_gap = self.s.episode_fetch_delay_ms / 1000.0
+        self.gap = self.base_gap
+        self._last_request = None
+        self._ok_streak = 0
         self.clock = time.monotonic
         self._beat_label = None
         self._beat_start = self._beat_last = 0.0
@@ -318,33 +322,79 @@ class Engine:
                           "before it is written", len(by_series))
         return by_series
 
+    # Waits before a second and a third try. A refusal for asking too often (HTTP 403 or 429)
+    # gets both; any other error one.
+    RETRY_WAITS_LIMITED = (10.0, 30.0)
+    RETRY_WAITS_OTHER = (10.0,)
+    MAX_GAP = 30.0          # longest the gap between requests grows to
+    SPEED_UP_AFTER = 20     # answered requests in a row before the gap shrinks again
+
+    @staticmethod
+    def _limited(reason):
+        return "HTTP 403" in reason or "HTTP 429" in reason
+
+    def _wait_turn(self):
+        """Keeps at least the current gap between provider requests.
+
+        Counted from the end of the last request, so the time spent writing
+        files in between already counts towards it.
+        """
+        if self._last_request is None or self.gap <= 0:
+            return
+        wait = self.gap - (self.clock() - self._last_request)
+        if wait > 0:
+            self.sleep(wait)
+
+    def _slow_down(self):
+        new_gap = min(max(self.gap * 2, 2.0), self.MAX_GAP)
+        self._ok_streak = 0
+        if new_gap > self.gap:
+            self.gap = new_gap
+            self.log.info("The provider is limiting requests: waiting %.1f s between requests from now on", new_gap)
+
+    def _answered(self):
+        self._ok_streak += 1
+        if self._ok_streak >= self.SPEED_UP_AFTER and self.gap > self.base_gap:
+            self.gap = max(self.base_gap, self.gap * 0.75)
+            self._ok_streak = 0
+            self.log.info("The provider has answered %d requests in a row: waiting %.1f s between requests now",
+                          self.SPEED_UP_AFTER, self.gap)
+
     def _fetch_lists(self, items, known, counters):
         """Fetches one show's episode lists. True when at least one provider answered."""
         answered = False
         for item in items:
-            if self.counters_fetched and self.s.episode_fetch_delay_ms:
-                self.sleep(self.s.episode_fetch_delay_ms / 1000.0)
+            self._wait_turn()
             self.counters_fetched += 1
             status, reason = self._fetch_one(item)
-            if status == "error" and not self._stop_requested():
-                # Most failures are a slow or busy provider: one more try after a short wait.
-                self.log.info("Episode list of '%s' failed (%s); trying once more in %d s",
-                              item.get("name"), reason, int(self.RETRY_WAIT))
-                self.sleep(self.RETRY_WAIT)
+            waits = ()
+            if status == "error":
+                waits = self.RETRY_WAITS_LIMITED if self._limited(reason) else self.RETRY_WAITS_OTHER
+                if self._limited(reason):
+                    # Once per show, not per try: one stubborn show must not stretch the gap for all.
+                    self._slow_down()
+            for attempt, wait in enumerate(waits, 2):
+                if status != "error" or self._stop_requested():
+                    break
+                self.log.info("Episode list of '%s' failed (%s); try %d in %d s",
+                              item.get("name"), reason, attempt, int(wait))
+                self.sleep(wait)
                 status, reason = self._fetch_one(item)
             if status == "ok":
                 answered = True
+                self._answered()
                 known[str(item["relation_id"])] = item.get("last_modified") or ""
                 self.log.info("Fetched the episode list of '%s' from the provider in %.1f s",
                               item.get("name"), self.last_fetch_seconds)
             elif status == "empty":
                 # Not a failure: the provider lists the show without episodes. Dispatcharr asks
                 # again after a day, and so do we.
+                self._answered()
                 self.log.info("The provider has no episodes for '%s' yet", item.get("name"))
             else:
                 counters["lists_failed"] += 1
-                self.log.warning("Episode list of '%s' failed after %.1f s: %s",
-                                 item.get("name"), self.last_fetch_seconds, reason)
+                self.log.warning("Episode list of '%s' failed after %d tries: %s",
+                                 item.get("name"), len(waits) + 1, reason)
                 self.failed_items.append({
                     "kind": "series",
                     "id": item.get("series_id"),
@@ -353,8 +403,6 @@ class Engine:
                 })
         return answered
 
-    RETRY_WAIT = 10.0
-
     def _fetch_one(self, item):
         started = self.clock()
         try:
@@ -362,7 +410,8 @@ class Engine:
         except Exception as exc:
             return "error", str(exc)[:200] or exc.__class__.__name__
         finally:
-            self.last_fetch_seconds = self.clock() - started
+            self._last_request = self.clock()
+            self.last_fetch_seconds = self._last_request - started
         if outcome is True:
             return "ok", ""
         if outcome is False or outcome is None:

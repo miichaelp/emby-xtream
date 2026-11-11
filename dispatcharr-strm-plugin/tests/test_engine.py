@@ -243,7 +243,7 @@ def test_episode_lists_are_fetched_just_before_each_show_is_written(tmp_path):
     src = LoadingSource(shows, pending, {i: [episode(10 * i, 1, 1)] for i in range(1, 6)})
     src.fetch_results = {
         2: ("empty", ""),                                                     # no episodes: not a failure
-        3: [("error", "The provider did not answer within 60 seconds")] * 2,  # fails twice
+        3: [("error", "The provider did not answer within 60 seconds")] * 2,  # fails twice: one retry only
         4: [RuntimeError("boom"), ("ok", "")],                                # fails, then the retry works
     }
     sleeps = []
@@ -253,7 +253,7 @@ def test_episode_lists_are_fetched_just_before_each_show_is_written(tmp_path):
     result = engine.run(state)
 
     assert src.fetched == [1, 2, 3, 3, 4, 4]                          # the limit holds the fifth back
-    assert sleeps == [Engine.RETRY_WAIT, Engine.RETRY_WAIT]
+    assert sleeps == [10.0, 10.0]
     assert src.order[:4] == [("read", 1), ("fetch", 1), ("read", 1), ("read", 2)]   # fetch, re-read, write, next
     assert state["series_last_modified"] == {"1": "1001", "4": "1004"}  # only answered shows are marked
     assert [(f["id"], f["error"]) for f in result["failed_items"]] == [(3, "The provider did not answer within 60 seconds")]
@@ -311,3 +311,58 @@ def test_log_names_every_written_title_and_reports_progress(tmp_path, caplog):
     with caplog.at_level(logging.INFO, logger=LOG.name):
         Engine(settings(tmp_path), src, FakeControl(), LOG, sleep=lambda s: None).run({})
     assert "Added movie" not in caplog.text and "Updated" not in caplog.text   # unchanged titles stay quiet
+
+
+class Clock:
+    """A fake clock that sleeping moves forward."""
+
+    def __init__(self):
+        self.now = 1000.0
+        self.sleeps = []
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(round(seconds, 2))
+        self.now += seconds
+
+
+def _limited_engine(tmp_path, results, delay_ms=1000, count=None):
+    count = count or len(results)
+    shows = [show(i, f"Show {i}", []) for i in range(1, count + 1)]
+    pending = [{"relation_id": i, "series_id": i, "name": f"Show {i}", "last_modified": "1"} for i in range(1, count + 1)]
+    src = LoadingSource(shows, pending, {i: [episode(10 * i, 1, 1)] for i in range(1, count + 1)})
+    src.fetch_results = results
+    clock = Clock()
+    engine = Engine(settings(tmp_path, episode_fetch_delay_ms=delay_ms), src, FakeControl(), LOG, sleep=clock.sleep)
+    engine.clock = clock
+    return engine, src, clock
+
+
+REFUSED = ("error", "The provider answered with an error (HTTP 403)")
+
+
+def test_a_refusal_slows_requests_down_and_gets_two_more_tries(tmp_path):
+    engine, src, clock = _limited_engine(tmp_path, {
+        1: ("ok", ""),
+        2: [REFUSED, REFUSED, ("ok", "")],     # third try works
+        3: ("ok", ""),
+        4: [REFUSED, REFUSED, REFUSED],        # never works
+    })
+    result = engine.run({}, kinds=("series",))
+    assert src.fetched == [1, 2, 2, 2, 3, 4, 4, 4]
+    assert 10.0 in clock.sleeps and 30.0 in clock.sleeps
+    assert engine.gap == 4.0                    # 1 s -> 2 (show 2) -> 4 (show 4): once per refused show
+    assert [f["id"] for f in result["failed_items"]] == [4]
+    assert "after 3 tries" not in str(result["failed_items"])
+
+
+def test_the_gap_counts_from_the_last_request_and_shrinks_after_successes(tmp_path):
+    results = {1: [REFUSED, ("ok", "")]}
+    results.update({i: ("ok", "") for i in range(2, 30)})
+    engine, src, clock = _limited_engine(tmp_path, results, count=29)
+    engine.run({}, kinds=("series",))
+    assert engine.gap == 1.5                    # 2 s after the refusal, x0.75 after 20 answers in a row
+    # No request ever came sooner than the gap in force: every wait between requests is at most the gap.
+    assert max(clock.sleeps) <= 10.0

@@ -36,8 +36,11 @@ sync makes no requests to Dispatcharr's API and cannot overload it.
   show. Each show is one request to the provider: the episode list only, without the separate
   login request Dispatcharr sends first when someone opens a show (providers that limit requests
   refused that second, back-to-back request with HTTP 403). The answer is handed to Dispatcharr,
-  which stores it as usual. A request that fails is retried once after 10 seconds; the failed list
-  shows the reason (for example a timeout or HTTP 403). Turn **Ask the IPTV provider for missing episode lists** off to keep the
+  which stores it as usual. Providers limit how often they may be asked and refuse the rest with
+  HTTP 403 or 429. On such a refusal the plugin tries the show twice more (after 10 and 30
+  seconds) and doubles the time it leaves between requests (up to 30 seconds); after 20 answers
+  in a row it shortens it again, never below **Least time between provider requests**. Other
+  errors are retried once after 10 seconds. The failed list shows the reason. Turn **Ask the IPTV provider for missing episode lists** off to keep the
   plugin away from the provider entirely: then only shows Dispatcharr already has episodes for get
   files. Movies never need the provider.
 - **Log**: the dashboard's log, Dispatcharr's container log (lines start with `STRM Sync:`), and

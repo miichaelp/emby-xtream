@@ -126,7 +126,8 @@ def run_sync(kinds=None, trigger="manual", only=None):
         runtime.add_output_log(settings.output_dir, (settings.xc_password, settings.emby_api_key))
         from .source import DispatcharrSource
 
-        log.info("Sync started (%s): %s", trigger, ", ".join(kinds))
+        log.info("Sync started (%s): %s. Plugin %s, %d ms between provider requests",
+                 trigger, ", ".join(kinds), manifest().get("version", "?"), settings.episode_fetch_delay_ms)
         engine = Engine(settings, DispatcharrSource(log), control, log)
         result = engine.run(state, kinds=kinds, only=only)
     except Exception as exc:

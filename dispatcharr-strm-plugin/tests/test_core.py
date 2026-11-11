@@ -100,7 +100,11 @@ def test_write_if_changed(tmp_path):
     assert core.write_if_changed(path, "a") == "same"
     assert core.write_if_changed(path, "b") == "updated"
     assert open(path).read() == "b"
-    assert not os.path.exists(path + ".tmp")
+    assert os.listdir(tmp_path / "x") == ["f.strm"]
+    dirs = set()
+    second = str(tmp_path / "y" / "g.strm")
+    assert core.write_if_changed(second, "c", dirs) == "added" and dirs == {str(tmp_path / "y")}
+    assert core.write_if_changed(str(tmp_path / "y" / "h.strm"), "d", dirs) == "added"
 
 
 def test_cleanup_removes_only_owned_orphans(tmp_path):

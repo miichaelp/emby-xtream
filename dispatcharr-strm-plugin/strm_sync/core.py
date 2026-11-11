@@ -200,21 +200,30 @@ def is_owned_strm(path, prefixes):
     return bool(head) and head.startswith(tuple(prefixes))
 
 
-def write_if_changed(path, content):
-    """Write the file unless it already holds exactly this. Returns "added", "updated" or "same"."""
-    existed = os.path.isfile(path)
-    if existed:
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                if fh.read() == content:
-                    return "same"
-        except (OSError, UnicodeDecodeError):
-            pass
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+def write_if_changed(path, content, known_dirs=None):
+    """Write the file unless it already holds exactly this. Returns "added", "updated" or "same".
+
+    Kept to as few file operations as possible: on Docker Desktop for Windows every
+    one crosses into the Windows folder and costs milliseconds. So no separate
+    existence check, no temporary file and rename (a .strm is one short line), and
+    each folder is created once per run (known_dirs, shared by the caller).
+    """
+    existed = True
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            if fh.read() == content:
+                return "same"
+    except FileNotFoundError:
+        existed = False
+    except (OSError, UnicodeDecodeError):
+        pass
+    directory = os.path.dirname(path)
+    if known_dirs is None or directory not in known_dirs:
+        os.makedirs(directory, exist_ok=True)
+        if known_dirs is not None:
+            known_dirs.add(directory)
+    with open(path, "w", encoding="utf-8", newline="") as fh:
         fh.write(content)
-    os.replace(tmp, path)
     return "updated" if existed else "added"
 
 

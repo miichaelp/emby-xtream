@@ -136,6 +136,7 @@ class Engine:
         self.stopped = False
         self.counters_fetched = 0
         self.last_fetch_seconds = 0.0
+        self.known_dirs = set()
         self.clock = time.monotonic
         self._beat_label = None
         self._beat_start = self._beat_last = 0.0
@@ -187,7 +188,7 @@ class Engine:
         outcome = "same"
         for suffix, url in urls:
             path = os.path.join(directory, f"{base}{suffix}.strm")
-            result = core.write_if_changed(path, url)
+            result = core.write_if_changed(path, url, self.known_dirs)
             written.add(path)
             stats["files"] += 1
             if result == "added":

@@ -123,12 +123,13 @@ def _duration(seconds):
 
 
 def _from(item):
-    """" from account 'Main' (series 1234)", naming the Dispatcharr M3U account asked."""
-    account = item.get("account")
-    if not account:
-        return " from the provider"
+    """" (series 1234)": the provider's id for this copy of the show.
+
+    One account can list the same show in several categories, each with its own
+    id; that is what a second fetch of the same show is.
+    """
     external = item.get("external_id")
-    return f" from account '{account}'" + (f" (series {external})" if external else "")
+    return f" (series {external})" if external else ""
 
 
 def _nth_try(tries):

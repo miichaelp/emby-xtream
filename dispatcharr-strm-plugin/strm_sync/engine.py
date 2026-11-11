@@ -137,10 +137,8 @@ class Engine:
         self.counters_fetched = 0
         self.last_fetch_seconds = 0.0
         self.known_dirs = set()
-        self.base_gap = self.s.episode_fetch_delay_ms / 1000.0
-        self.gap = self.base_gap
+        self.gap = self.s.episode_fetch_delay_ms / 1000.0
         self._last_request = None
-        self._ok_streak = 0
         self.clock = time.monotonic
         self._beat_label = None
         self._beat_start = self._beat_last = 0.0
@@ -322,19 +320,19 @@ class Engine:
                           "before it is written", len(by_series))
         return by_series
 
-    # Waits before a second and a third try. A refusal for asking too often (HTTP 403 or 429)
-    # gets both; any other error one.
-    RETRY_WAITS_LIMITED = (10.0, 30.0)
+    # Waits before each further try. Refusals (HTTP 403 or 429) get four more tries in
+    # quick succession: a real provider refused about half of all requests at random,
+    # whatever the time between them (under 1 s or over 15 s alike), and answered the same
+    # request when asked again. Slowing down did not help, so the pace stays as set.
+    RETRY_WAITS_LIMITED = (3.0, 5.0, 10.0, 20.0)
     RETRY_WAITS_OTHER = (10.0,)
-    MAX_GAP = 30.0          # longest the gap between requests grows to
-    SPEED_UP_AFTER = 20     # answered requests in a row before the gap shrinks again
 
     @staticmethod
     def _limited(reason):
         return "HTTP 403" in reason or "HTTP 429" in reason
 
     def _wait_turn(self):
-        """Keeps at least the current gap between provider requests.
+        """Keeps at least the configured time between provider requests.
 
         Counted from the end of the last request, so the time spent writing
         files in between already counts towards it.
@@ -344,21 +342,6 @@ class Engine:
         wait = self.gap - (self.clock() - self._last_request)
         if wait > 0:
             self.sleep(wait)
-
-    def _slow_down(self):
-        new_gap = min(max(self.gap * 2, 2.0), self.MAX_GAP)
-        self._ok_streak = 0
-        if new_gap > self.gap:
-            self.gap = new_gap
-            self.log.info("The provider is limiting requests: waiting %.1f s between requests from now on", new_gap)
-
-    def _answered(self):
-        self._ok_streak += 1
-        if self._ok_streak >= self.SPEED_UP_AFTER and self.gap > self.base_gap:
-            self.gap = max(self.base_gap, self.gap * 0.75)
-            self._ok_streak = 0
-            self.log.info("The provider has answered %d requests in a row: waiting %.1f s between requests now",
-                          self.SPEED_UP_AFTER, self.gap)
 
     def _fetch_lists(self, items, known, counters):
         """Fetches one show's episode lists. True when at least one provider answered."""
@@ -370,9 +353,6 @@ class Engine:
             waits = ()
             if status == "error":
                 waits = self.RETRY_WAITS_LIMITED if self._limited(reason) else self.RETRY_WAITS_OTHER
-                if self._limited(reason):
-                    # Once per show, not per try: one stubborn show must not stretch the gap for all.
-                    self._slow_down()
             for attempt, wait in enumerate(waits, 2):
                 if status != "error" or self._stop_requested():
                     break
@@ -382,14 +362,12 @@ class Engine:
                 status, reason = self._fetch_one(item)
             if status == "ok":
                 answered = True
-                self._answered()
                 known[str(item["relation_id"])] = item.get("last_modified") or ""
                 self.log.info("Fetched the episode list of '%s' from the provider in %.1f s",
                               item.get("name"), self.last_fetch_seconds)
             elif status == "empty":
                 # Not a failure: the provider lists the show without episodes. Dispatcharr asks
                 # again after a day, and so do we.
-                self._answered()
                 self.log.info("The provider has no episodes for '%s' yet", item.get("name"))
             else:
                 counters["lists_failed"] += 1

@@ -1,7 +1,7 @@
 {
   "name": "STRM Sync",
-  "version": "0.1.0",
-  "description": "Writes .strm files for Dispatcharr's movies and series after each M3U / VOD refresh, so Emby, Jellyfin or Plex can add them as normal libraries. Open the dashboard with the Docs link.",
+  "version": "0.2.0",
+  "description": "Writes .strm files for Dispatcharr's movies and series by hand, after each M3U refresh or on a schedule, so Emby, Jellyfin or Plex can add them as normal libraries. Open the dashboard with the Docs link.",
   "author": "emby-xtream",
   "help_url": "/logos/strm_sync/index.html",
   "fields": [
@@ -10,7 +10,12 @@
     { "id": "base_url", "label": "Dispatcharr address as your media server reaches it", "type": "string", "default": "", "placeholder": "http://192.168.0.11:9191", "help_text": "Written into every .strm file. Use an address that works from the Emby machine, not localhost unless both run on the same machine." },
     { "id": "sync_movies", "label": "Sync movies", "type": "boolean", "default": true },
     { "id": "sync_series", "label": "Sync series", "type": "boolean", "default": true },
-    { "id": "auto_sync", "label": "Sync automatically after each M3U / VOD refresh", "type": "boolean", "default": true },
+
+    { "id": "h_when", "type": "info", "label": "When to sync", "description": "You can always sync by hand with the buttons below or on the dashboard. A refresh and a schedule can both be on." },
+    { "id": "auto_sync", "label": "Sync after each M3U refresh", "type": "boolean", "default": true, "help_text": "Starts when Dispatcharr has finished loading the account's movies and series." },
+    { "id": "schedule", "label": "Sync on a schedule", "type": "select", "default": "off", "options": [ { "value": "off", "label": "Off" }, { "value": "interval", "label": "Every few hours" }, { "value": "daily", "label": "Once a day" } ] },
+    { "id": "schedule_hours", "label": "Hours between syncs (every few hours)", "type": "number", "default": 24, "help_text": "Counted from the last sync, including one run by hand." },
+    { "id": "schedule_time", "label": "Time of day (once a day)", "type": "string", "default": "03:00", "placeholder": "03:00", "help_text": "24-hour time, in the time zone set in Dispatcharr's system settings." },
 
     { "id": "h_names", "type": "info", "label": "Names and folders", "description": "Layout: Movies/Title (Year) [tmdbid=1]/Title (Year) [tmdbid=1].strm and Shows/Show/Season 01/Show - S01E01 - Title.strm" },
     { "id": "movie_folder_mode", "label": "Movie folders", "type": "select", "default": "single", "options": [ { "value": "single", "label": "One Movies folder" }, { "value": "category", "label": "A subfolder per category" } ] },

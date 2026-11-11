@@ -17,6 +17,9 @@ from . import core, runtime
 from .engine import MOVIES_DIR, SHOWS_DIR, Engine, Settings
 
 VOD_REFRESH_TASK = "apps.vod.tasks.refresh_vod_content"
+TICK_TASK = "strm_sync.schedule_tick"
+TICK_NAME = "STRM Sync: schedule check"
+TICK_MINUTES = 5
 ALL_KINDS = ("movies", "series")
 
 
@@ -67,7 +70,9 @@ def run_sync(kinds=None, trigger="manual", only=None):
     if not enabled:
         return "STRM Sync is disabled"
     if trigger == "auto" and not settings.auto_sync:
-        return "Automatic sync is turned off"
+        return "Sync after an M3U refresh is turned off"
+    if trigger == "schedule" and settings.schedule == "off":
+        return "The schedule is turned off"
 
     state = runtime.load_state()
     problems = settings.problems()
@@ -187,6 +192,83 @@ def run_delete(kinds=None):
     finally:
         control.release()
     return "Deleted"
+
+
+def local_now():
+    """Now, in the time zone set in Dispatcharr's system settings."""
+    from zoneinfo import ZoneInfo
+
+    from django.utils import timezone as dj_timezone
+
+    try:
+        from core.models import CoreSettings
+
+        zone = ZoneInfo(CoreSettings.get_system_time_zone())
+    except Exception:
+        zone = dj_timezone.get_default_timezone()
+    return dj_timezone.now().astimezone(zone)
+
+
+def last_run_start(state):
+    history = state.get("history") or []
+    if not history:
+        return None
+    try:
+        return datetime.fromisoformat(history[0]["start"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def ensure_schedule_task():
+    """Creates the beat entry that runs schedule_tick every few minutes. Safe to call often.
+
+    Dispatcharr disables this entry with the plugin and deletes it with the plugin.
+    """
+    from django_celery_beat.models import IntervalSchedule, PeriodicTask
+
+    existing = PeriodicTask.objects.filter(name=TICK_NAME).first()
+    if existing is not None and existing.task == TICK_TASK:
+        return False
+    interval, _ = IntervalSchedule.objects.get_or_create(every=TICK_MINUTES, period=IntervalSchedule.MINUTES)
+    PeriodicTask.objects.update_or_create(
+        name=TICK_NAME,
+        defaults={"task": TICK_TASK, "interval": interval, "crontab": None, "clocked": None,
+                  "solar": None, "one_off": False, "enabled": True},
+    )
+    return True
+
+
+@shared_task(name=TICK_TASK)
+def schedule_tick():
+    """Run by Celery beat every few minutes; starts a sync when the schedule says so."""
+    from . import schedule
+
+    settings, enabled = load_settings()
+    if not enabled or settings.schedule == "off" or settings.problems():
+        return "Not scheduled"
+    state = runtime.load_state()
+    sched = state.setdefault("schedule", {})
+    due = schedule.check(settings.schedule, settings.schedule_hours, settings.schedule_time,
+                         local_now(), sched, last_run_start(state))
+    runtime.save_state(state)
+    if not due:
+        return "Not due"
+    if runtime.read_progress(runtime.redis_client()).get("running"):
+        runtime.setup_logging().info("Scheduled sync skipped: a sync is already running")
+        return "Already running"
+    runtime.setup_logging().info("Scheduled sync starting")
+    queue_sync(ALL_KINDS, trigger="schedule")
+    return "Queued"
+
+
+def next_scheduled_run(settings, state):
+    from . import schedule
+
+    if settings.schedule == "off":
+        return None
+    when = schedule.next_run(settings.schedule, settings.schedule_hours, settings.schedule_time,
+                             local_now(), dict(state.get("schedule") or {}), last_run_start(state))
+    return when.isoformat() if when else None
 
 
 def _on_task_finished(sender=None, task=None, retval=None, **_kwargs):

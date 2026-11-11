@@ -24,6 +24,14 @@ class Plugin:
     def __init__(self):
         runtime.setup_logging()
         runtime.install_dashboard()
+        self._ensure_schedule()
+
+    @staticmethod
+    def _ensure_schedule():
+        try:
+            tasks.ensure_schedule_task()
+        except Exception as exc:  # the database may not be ready during startup discovery
+            runtime.log.debug("Schedule entry not created yet: %s", exc)
 
     # ---- actions -----------------------------------------------------------------
 
@@ -113,8 +121,13 @@ class Plugin:
     # ---- dashboard (called by the page, not shown as buttons) ---------------------
 
     def _do_dashboard(self, params):
+        self._ensure_schedule()
         settings, enabled = tasks.load_settings()
         state = runtime.load_state()
+        try:
+            next_run = tasks.next_scheduled_run(settings, state)
+        except Exception:
+            next_run = None
         return {
             "status": "ok",
             "version": self.version,
@@ -133,6 +146,10 @@ class Plugin:
                 "sync_movies": settings.sync_movies,
                 "sync_series": settings.sync_series,
                 "auto_sync": settings.auto_sync,
+                "schedule": settings.schedule,
+                "schedule_hours": settings.schedule_hours,
+                "schedule_time": settings.schedule_time,
+                "next_run": next_run,
                 "url_style": settings.url_style,
                 "multi_version": settings.multi_version,
                 "cleanup_orphans": settings.cleanup_orphans,

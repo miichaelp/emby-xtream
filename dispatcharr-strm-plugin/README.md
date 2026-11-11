@@ -1,8 +1,9 @@
 # STRM Sync for Dispatcharr
 
 A Dispatcharr plugin that writes `.strm` files for Dispatcharr's movies and series, so Emby,
-Jellyfin or Plex can add them as normal Movie and TV Show libraries. It runs by itself after each
-M3U / VOD refresh, and has a dashboard page with progress, history and a Stop button.
+Jellyfin or Plex can add them as normal Movie and TV Show libraries. It syncs by hand, after each
+M3U refresh, on a schedule, or any mix of those, and has a dashboard page with progress, history
+and a Stop button.
 
 It does inside Dispatcharr what the Movies and Series sync of the Emby *Xtream Tuner* plugin does
 from the Emby side, with the same folder layout. Because it reads Dispatcharr's own database, a
@@ -14,6 +15,16 @@ sync makes no requests to Dispatcharr's API and cannot overload it.
 > first.
 
 ## What it does
+
+- **When it syncs** (plugin settings, *When to sync*):
+  - **By hand**: always, with the buttons on the plugin card or the dashboard.
+  - **After each M3U refresh**: on by default. Starts once Dispatcharr has finished loading the
+    account's movies and series.
+  - **On a schedule**: every few hours (counted from the last sync, including one run by hand),
+    or once a day at a set time in the time zone from Dispatcharr's system settings.
+
+  A refresh and a schedule can both be on. If a sync is already running when another is due, the
+  second one is skipped (a refresh that finishes meanwhile still gets one sync afterwards).
 
 - **Movies**: `Movies/Title (Year) [tmdbid=1]/Title (Year) [tmdbid=1].strm`
 - **Series**: `Shows/Show/Season 01/Show - S01E01 - Title.strm`. Specials go to `Season 00`.
@@ -99,7 +110,10 @@ pip install pytest fakeredis django celery
 python -m pytest tests
 ```
 
-`strm_sync/core.py` and `engine.py` have no Dispatcharr imports. `source.py` holds the database
+`strm_sync/core.py`, `engine.py` and `schedule.py` have no Dispatcharr imports. The schedule is a
+Celery beat entry (*STRM Sync: schedule check*) that runs every 5 minutes and starts a sync when
+`schedule.py` says one is due; Dispatcharr disables it with the plugin and deletes it with the
+plugin. `source.py` holds the database
 queries, `runtime.py` the lock, progress and saved state, `tasks.py` the Celery tasks and the hook
 on Dispatcharr's `refresh_vod_content` task.
 

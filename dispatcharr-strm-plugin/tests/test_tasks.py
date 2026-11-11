@@ -61,7 +61,7 @@ def test_disabled_or_misconfigured_does_not_run(env):
     assert "Dispatcharr address" in runtime.load_state()["last_error"]
     assert not env["out"].exists()
     env["raw"].update(base_url=BASE, auto_sync=False)
-    assert tasks.run_sync(trigger="auto") == "Automatic sync is turned off"
+    assert tasks.run_sync(trigger="auto") == "Sync after an M3U refresh is turned off"
 
 
 def test_second_run_while_locked_is_refused_and_auto_reruns_afterwards(env):
@@ -201,3 +201,44 @@ def test_log_hides_secrets(env):
         handler.flush()
     text = runtime.read_log(secrets=("s3cretpw", ""))
     assert "s3cretpw" not in text and "/movie/emby/***/7.mkv" in text
+
+
+def test_schedule_tick_queues_a_sync_when_due(env, monkeypatch):
+    from datetime import datetime, timedelta, timezone as tz
+
+    clock = {"now": datetime(2026, 11, 11, 10, tzinfo=tz.utc)}
+    monkeypatch.setattr(tasks, "local_now", lambda: clock["now"])
+
+    assert tasks.schedule_tick() == "Not scheduled"                    # schedule off by default
+    env["raw"].update(schedule="interval", schedule_hours=2)
+    assert tasks.schedule_tick() == "Not due"                          # first check: clock starts
+    clock["now"] += timedelta(hours=2)
+    assert tasks.schedule_tick() == "Queued"
+    assert env["queued"][-1][1] == {"trigger": "schedule"}
+    assert tasks.schedule_tick() == "Not due"
+
+    clock["now"] += timedelta(hours=2)
+    other = runtime.Control(env["redis"])
+    other.acquire()
+    assert tasks.schedule_tick() == "Already running"
+    other.release()
+    assert len(env["queued"]) == 1
+
+    env["raw"].update(schedule="daily", schedule_time="25:00")
+    assert tasks.schedule_tick() == "Not scheduled"                    # bad time is a settings problem
+
+
+def test_scheduled_run_is_recorded_and_respects_the_switch(env):
+    env["raw"]["schedule"] = "off"
+    assert tasks.run_sync(trigger="schedule") == "The schedule is turned off"
+    env["raw"]["schedule"] = "daily"
+    assert tasks.run_sync(trigger="schedule") == "Sync finished"
+    assert runtime.load_state()["history"][0]["trigger"] == "schedule"
+
+
+def test_schedule_settings_problems():
+    base = {"output_dir": "/s", "base_url": BASE}
+    assert any("1 hour" in p for p in Settings(dict(base, schedule="interval", schedule_hours=0)).problems())
+    assert any("24-hour" in p for p in Settings(dict(base, schedule="daily", schedule_time="3pm")).problems())
+    assert Settings(dict(base, schedule="daily", schedule_time="03:00")).problems() == []
+    assert Settings(dict(base, schedule="weekly")).schedule == "off"

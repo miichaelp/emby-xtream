@@ -296,9 +296,13 @@
     });
 
     var s = d.settings || {};
-    $('auto-note').textContent = s.auto_sync
-      ? 'A sync also starts by itself after each M3U / VOD refresh in Dispatcharr.'
-      : 'Automatic sync after an M3U / VOD refresh is turned off.';
+    var modes = [];
+    if (s.auto_sync) modes.push('after each M3U refresh');
+    if (s.schedule === 'interval') modes.push('every ' + n(s.schedule_hours) + ' hours');
+    if (s.schedule === 'daily') modes.push('every day at ' + s.schedule_time);
+    var note = modes.length ? 'Also syncs by itself ' + modes.join(' and ') + '.' : 'Syncs only when you start it.';
+    if (s.next_run) note += ' Next scheduled sync: ' + when(s.next_run) + '.';
+    $('auto-note').textContent = note;
 
     var failed = d.failed || [];
     $('btn-retry').classList.toggle('hidden', !failed.length);
@@ -324,7 +328,7 @@
         var td = el('td'); td.appendChild(badge);
         if (!h.success && !h.stopped && h.message) { td.appendChild(el('div', h.message, 'dim')); }
         tr.appendChild(td);
-        tr.appendChild(el('td', { auto: 'After a refresh', manual: 'By hand', retry: 'Retry' }[h.trigger] || h.trigger));
+        tr.appendChild(el('td', { auto: 'After a refresh', manual: 'By hand', retry: 'Retry', schedule: 'Schedule' }[h.trigger] || h.trigger));
         tr.appendChild(el('td', took(h.duration), 'num'));
         tr.appendChild(el('td', kindSummary(h.movies)));
         var ser = kindSummary(h.series);
@@ -342,6 +346,9 @@
     [
       ['STRM folder', (s.output_dir || 'not set') + (s.output_dir && !s.output_dir_exists ? '  (does not exist yet)' : '')],
       ['Address in the files', s.base_url || 'not set'],
+      ['When', [s.auto_sync ? 'After each M3U refresh' : null,
+                s.schedule === 'interval' ? 'Every ' + n(s.schedule_hours) + ' hours' : null,
+                s.schedule === 'daily' ? 'Daily at ' + s.schedule_time : null].filter(Boolean).join(', ') || 'By hand only'],
       ['Syncing', [s.sync_movies ? 'Movies' : null, s.sync_series ? 'Series' : null].filter(Boolean).join(' and ') || 'nothing'],
       ['Stream URL', s.url_style === 'xtream' ? 'Xtream URL' : 'Dispatcharr proxy'],
       ['Versions', s.multi_version ? 'One per provider' : 'Best provider only'],

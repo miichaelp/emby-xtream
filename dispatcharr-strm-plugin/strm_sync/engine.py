@@ -8,7 +8,7 @@ the real catalogue and runtime.py for the real control.
 import os
 import time
 
-from . import core
+from . import core, schedule
 
 MOVIES_DIR = "Movies"
 SHOWS_DIR = "Shows"
@@ -48,6 +48,11 @@ class Settings:
         self.sync_movies = _as_bool(raw.get("sync_movies"), True)
         self.sync_series = _as_bool(raw.get("sync_series"), True)
         self.auto_sync = _as_bool(raw.get("auto_sync"), True)
+        self.schedule = str(raw.get("schedule") or "off").strip().lower()
+        if self.schedule not in ("off", "interval", "daily"):
+            self.schedule = "off"
+        self.schedule_hours = _as_number(raw.get("schedule_hours"), 24, 0)
+        self.schedule_time = str(raw.get("schedule_time") or "03:00").strip()
         self.url_style = str(raw.get("url_style") or "proxy").strip().lower()
         self.xc_username = str(raw.get("xc_username") or "").strip()
         self.xc_password = str(raw.get("xc_password") or "").strip()
@@ -82,6 +87,10 @@ class Settings:
             out.append("The Dispatcharr address must start with http:// or https://.")
         if self.url_style == "xtream" and not (self.xc_username and self.xc_password):
             out.append("Xtream-style URLs need the Dispatcharr user name and its Xtream password.")
+        if self.schedule == "interval" and self.schedule_hours < 1:
+            out.append("The schedule needs at least 1 hour between syncs.")
+        if self.schedule == "daily" and not schedule.parse_time(self.schedule_time):
+            out.append("The daily sync time must be a 24-hour time such as 03:00.")
         if not (self.sync_movies or self.sync_series):
             out.append("Movies and Series are both turned off, so there is nothing to sync.")
         return out

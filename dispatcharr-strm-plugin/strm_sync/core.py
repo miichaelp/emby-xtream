@@ -213,14 +213,19 @@ def is_owned_strm(path, prefixes):
 
     Unreadable, empty or anything else means foreign, and foreign is kept.
     """
+    return owned_strm_url(path, prefixes) is not None
+
+
+def owned_strm_url(path, prefixes):
+    """The URL in a .strm we own, or None when it is not ours (see is_owned_strm)."""
     if not prefixes:
-        return False
+        return None
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             head = fh.read(2048).strip()
     except OSError:
-        return False
-    return bool(head) and head.startswith(tuple(prefixes))
+        return None
+    return head if head and head.startswith(tuple(prefixes)) else None
 
 
 def write_if_changed(path, content, known_dirs=None):
@@ -302,16 +307,24 @@ class CleanupResult:
         self.deleted = 0
         self.owned = 0
         self.orphans = 0
+        self.renamed = 0
         self.skipped_reason = ""
         self.removed_titles = []
 
 
-def cleanup_orphans(root, written_paths, prefixes, safety_ratio, written_nfos=None):
+def cleanup_orphans(root, written_paths, prefixes, safety_ratio, written_nfos=None, written_urls=None,
+                    renames_only=False):
     """Delete .strm files we own under root that this run did not write.
 
     written_paths: every .strm path this run wrote or confirmed (absolute).
     safety_ratio: with more than 10 owned files, refuse to delete more than
     this share at once (0.2 = 20%); 0 turns the guard off.
+    written_urls: every URL this run wrote. An orphan holding one of them is
+    the old name of a file that was renamed (a naming setting changed): the
+    same stream is on disk under its new name, so it is removed whatever the
+    safety limit, which exists to catch a catalogue that shrank, not renames.
+    renames_only: remove only those old names, for a run that did not see the
+    whole catalogue (stopped, partial, or with failures).
 
     Only files are deleted, one at a time, and only ours. A folder is removed
     only once it is empty. Never a recursive delete: a folder match is not
@@ -327,26 +340,32 @@ def cleanup_orphans(root, written_paths, prefixes, safety_ratio, written_nfos=No
 
     written = {_path_key(p) for p in written_paths}
     kept_nfos = {_path_key(p) for p in (written_nfos or ())}
-    orphans = []
+    current_urls = set(written_urls or ())
+    orphans, renamed = [], []
     for dirpath, _dirs, files in os.walk(root):
         for name in files:
             if not name.lower().endswith(".strm"):
                 continue
             path = os.path.join(dirpath, name)
-            if not is_owned_strm(path, prefixes):
+            url = owned_strm_url(path, prefixes)
+            if url is None:
                 continue
             result.owned += 1
             if _path_key(path) not in written:
-                orphans.append(path)
+                (renamed if url in current_urls else orphans).append(path)
 
     result.orphans = len(orphans)
-    if not orphans:
-        return result
-    if safety_ratio and result.owned > 10 and len(orphans) / result.owned > safety_ratio:
+    result.renamed = len(renamed)
+    if renames_only:
+        orphans = []
+    elif safety_ratio and result.owned > 10 and len(orphans) / result.owned > safety_ratio:
         result.skipped_reason = (
             f"{len(orphans)} of {result.owned} files would be removed, more than the safety limit "
             f"of {int(round(safety_ratio * 100))}%"
         )
+        orphans = []
+    orphans = renamed + orphans
+    if not orphans:
         return result
 
     touched_dirs = set()

@@ -194,3 +194,13 @@ def test_delete_all_owned(tmp_path):
     result = core.delete_all_owned(str(root), PREFIXES)
     assert result.deleted == 30                      # no safety limit on a deliberate delete
     assert os.path.exists(foreign) and os.listdir(root) == ["Mine"]
+
+
+def test_cleanup_removes_renamed_files_past_the_safety_limit(tmp_path):
+    root = tmp_path / "Movies"
+    old = [_strm(root / f"M{i}" / f"M{i}.strm", f"http://d:9191/proxy/vod/movie/u{i}") for i in range(20)]
+    new = [_strm(root / f"M{i}" / f"M{i} - 4K.strm", f"http://d:9191/proxy/vod/movie/u{i}") for i in range(20)]
+    result = core.cleanup_orphans(str(root), set(new), PREFIXES, 0.2,
+                                  written_urls={f"http://d:9191/proxy/vod/movie/u{i}" for i in range(20)})
+    assert result.renamed == 20 and result.deleted == 20 and not result.skipped_reason
+    assert not any(os.path.exists(p) for p in old) and all(os.path.exists(p) for p in new)

@@ -157,6 +157,7 @@ class Engine:
         self.counters_fetched = 0
         self.last_fetch_seconds = 0.0
         self.known_dirs = set()
+        self.written_urls = set()
         self.gap = self.s.episode_fetch_delay_ms / 1000.0
         self._last_request = None
         self.clock = time.monotonic
@@ -213,6 +214,7 @@ class Engine:
             path = os.path.join(directory, f"{base}{suffix}.strm")
             result = core.write_if_changed(path, url, self.known_dirs)
             written.add(path)
+            self.written_urls.add(url)
             stats["files"] += 1
             if result == "added":
                 stats["files_added"] += 1
@@ -544,21 +546,32 @@ class Engine:
             reason = "the run did not cover the whole catalogue"
         elif stats["failed"]:
             reason = f"{stats['failed']} title(s) failed to write"
+        root = os.path.join(self.s.output_dir, root_name)
+        prefixes = core.owned_url_prefixes(self.s.base_url)
         if reason:
-            self.log.info("Removing old %s files skipped: %s", kind, reason)
+            self.log.info("Removing files of titles no longer available skipped: %s", reason)
+            # Old names of renamed files are still safe to remove: their streams were just
+            # written under the new names.
+            if written:
+                result = core.cleanup_orphans(root, written, prefixes, 0, nfos, self.written_urls, renames_only=True)
+                stats["deleted"] = result.deleted
+                if result.renamed:
+                    self.log.info("Removed %d old %s file name(s) left by a rename: the same streams are on "
+                                  "disk under their new names", result.renamed, kind)
             return
 
         self.control.progress(kind, "Removing files for titles no longer available", stats["total"], stats["total"], stats)
-        root = os.path.join(self.s.output_dir, root_name)
-        result = core.cleanup_orphans(
-            root, written, core.owned_url_prefixes(self.s.base_url), self.s.safety_limit, nfos)
+        result = core.cleanup_orphans(root, written, prefixes, self.s.safety_limit, nfos, self.written_urls)
+        if result.renamed:
+            self.log.info("Removed %d old %s file name(s) left by a rename: the same streams are on disk "
+                          "under their new names", result.renamed, kind)
         stats["deleted"] = result.deleted
         if result.skipped_reason and result.orphans:
             label = "movie" if kind == "movies" else "series"
-            message = f"No old {label} files were removed: {result.skipped_reason}."
+            message = f"Old {label} files of titles no longer available were not removed: {result.skipped_reason}."
             self.warnings.append(message)
             self.log.warning(message)
-        elif result.deleted:
+        if result.deleted:
             self.removed.extend(result.removed_titles)
             self.log.info("Removed %d old %s file(s): %s%s", result.deleted, kind,
                           "; ".join(result.removed_titles[:25]),

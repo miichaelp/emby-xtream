@@ -162,7 +162,7 @@ def test_cleanup_safety_limit_holds_when_the_catalogue_shrinks(tmp_path):
     result = run(tmp_path, FakeSource(movies=[movie(i, f"Movie {i}") for i in range(1, 6)]))
     assert result["movies"]["deleted"] == 0
     assert len(tree(tmp_path)) == 20
-    assert any("safety limit" in w for w in result["warnings"])
+    assert any("safety limit" in w and "not removed" in w for w in result["warnings"])
 
 
 def test_empty_catalogue_never_deletes(tmp_path):
@@ -414,3 +414,38 @@ def test_episode_titles_can_be_left_out_of_file_names(tmp_path):
 def test_a_single_version_has_no_folder_suffix(tmp_path):
     run(tmp_path, FakeSource(movies=[movie(1, "Heat", versions=[version(11, folder="MOVIES")])]), version_label="folder")
     assert tree(tmp_path) == ["Movies/Heat/Heat.strm"]
+
+
+def test_renaming_removes_the_old_names_even_past_the_safety_limit(tmp_path):
+    def shows():
+        return [show(i, f"Show {i}", [episode(10 * i, 1, 1, "Κασέτα", versions=[
+            version(100 + i, folder="NETFLIX SERIES"), version(200 + i, folder="NETFLIX SERIES ⁴ᴷ")])])
+            for i in range(1, 13)]
+
+    run(tmp_path, FakeSource(shows=shows()), version_label="number")          # Show - S01E01 - Κασέτα / - Version 2
+    assert len(tree(tmp_path)) == 24
+    result = run(tmp_path, FakeSource(shows=shows()), version_label="folder", episode_titles=False)
+    files = tree(tmp_path)
+    assert len(files) == 24 and all("Κασέτα" not in f and "Version" not in f for f in files)
+    assert result["series"]["deleted"] == 24 and not result["warnings"]       # every file renamed: all old names go
+
+
+def test_a_rename_never_hides_a_real_catalogue_drop(tmp_path):
+    run(tmp_path, FakeSource(movies=[movie(i, f"Movie {i}") for i in range(1, 21)]), episode_titles=True)
+    # Ten movies vanish from Dispatcharr in the same run as a rename of the rest.
+    result = run(tmp_path, FakeSource(movies=[movie(i, f"Movie {i}", year=2000) for i in range(1, 11)]))
+    files = tree(tmp_path)
+    assert result["movies"]["deleted"] == 10                                   # the ten renamed old names
+    assert sum("(2000)" in f for f in files) == 10 and len(files) == 20       # the ten vanished titles stay
+    assert any("safety limit" in w for w in result["warnings"])
+
+
+def test_a_stopped_sync_still_removes_renamed_names_but_nothing_else(tmp_path):
+    run(tmp_path, FakeSource(movies=[movie(i, f"Movie {i}") for i in range(1, 6)]))
+    # Movie 5 has gone from Dispatcharr; movies 1-4 are renamed (year added). Stop after two.
+    result = run(tmp_path, FakeSource(movies=[movie(i, f"Movie {i}", year=2000) for i in range(1, 5)]),
+                 control=FakeControl(stop_after=3), safety_limit=0)
+    files = tree(tmp_path)
+    assert result["stopped"] and result["movies"]["deleted"] == 2             # the two renamed so far
+    assert "Movies/Movie 1/Movie 1.strm" not in files and "Movies/Movie 1 (2000)/Movie 1 (2000).strm" in files
+    assert "Movies/Movie 3/Movie 3.strm" in files and "Movies/Movie 5/Movie 5.strm" in files

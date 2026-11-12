@@ -218,5 +218,21 @@ def test_cleanup_stops_when_asked(tmp_path):
 
     seen = []
     result = core.cleanup_orphans(str(root), {str(root / "x.strm")}, PREFIXES, 0, should_stop=stop,
-                                  progress=seen.append)
-    assert result.deleted == 0 and result.skipped_reason == "the sync was stopped" and seen == [2000, 4000]
+                                  progress=lambda stage, n: seen.append((stage, n)))
+    assert result.deleted == 0 and result.skipped_reason == "the sync was stopped"
+    assert seen == [("scan", 2000), ("scan", 4000)]
+
+
+def test_delete_all_stops_part_way_through_deleting(tmp_path):
+    root = tmp_path / "Shows"
+    for i in range(1200):
+        _strm(root / "S" / f"e{i}.strm")
+    reports = []
+
+    def report(stage, n):
+        reports.append((stage, n))
+
+    result = core.delete_all_owned(str(root), PREFIXES, should_stop=lambda: ("delete", 1000) in reports,
+                                   progress=report)
+    assert result.deleted == 1000 and result.skipped_reason == "the sync was stopped"
+    assert len(os.listdir(root / "S")) == 200

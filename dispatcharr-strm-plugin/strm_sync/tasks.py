@@ -204,7 +204,14 @@ def run_delete(kinds=None):
                 continue
             control.progress(kind, f"Deleting {kind}", 0, 0, force=True)
             root = os.path.join(settings.output_dir, root_name)
-            outcome = core.delete_all_owned(root, prefixes)
+            def report(stage, count, kind=kind):
+                text = "looked at" if stage == "scan" else "deleted"
+                control.progress(kind, f"Deleting {kind}: {count:,} files {text}", 0, 0, force=True)
+
+            outcome = core.delete_all_owned(root, prefixes, should_stop=control.should_stop, progress=report)
+            if outcome.skipped_reason:
+                log.info("Deleting %s stopped on request after %d file(s)", kind, outcome.deleted)
+                break
             log.info("Deleted %d %s file(s) on request", outcome.deleted, kind)
             counts = state.setdefault("counts", {})
             if kind == "movies":

@@ -326,7 +326,8 @@ def cleanup_orphans(root, written_paths, prefixes, safety_ratio, written_nfos=No
     renames_only: remove only those old names, for a run that did not see the
     whole catalogue (partial, or with failures).
     should_stop: checked while scanning and deleting; when it says stop, nothing
-    more is deleted. progress: called now and then with the number of files seen.
+    more is deleted. progress: called now and then as progress("scan", files
+    looked at) and progress("delete", files deleted).
 
     Only files this run did not write are opened. A file it wrote is ours by
     definition, and opening all of them cost about 50 minutes for 200,000 files
@@ -356,7 +357,7 @@ def cleanup_orphans(root, written_paths, prefixes, safety_ratio, written_nfos=No
             seen += 1
             if seen % 2000 == 0:
                 if progress:
-                    progress(seen)
+                    progress("scan", seen)
                 if should_stop and should_stop():
                     result.skipped_reason = "the sync was stopped"
                     return result
@@ -388,7 +389,10 @@ def cleanup_orphans(root, written_paths, prefixes, safety_ratio, written_nfos=No
     titles = []
     for path in orphans:
         if should_stop and should_stop():
+            result.skipped_reason = "the sync was stopped"
             break
+        if progress and result.deleted and result.deleted % 500 == 0:
+            progress("delete", result.deleted)
         directory = os.path.dirname(path)
         stem = os.path.basename(path)[:-5]
         try:
@@ -408,13 +412,15 @@ def cleanup_orphans(root, written_paths, prefixes, safety_ratio, written_nfos=No
     return result
 
 
-def delete_all_owned(root, prefixes):
+def delete_all_owned(root, prefixes, should_stop=None, progress=None):
     """Delete every .strm we own under root (the "delete all content" button).
 
     Deliberate, so the safety limit is off. Foreign files and their folders stay.
+    Stoppable, and reports progress, like the clean-up.
     """
     # A "written" set that matches nothing makes every owned file an orphan.
-    return cleanup_orphans(root, {os.path.join(root, ".none")}, prefixes, 0)
+    return cleanup_orphans(root, {os.path.join(root, ".none")}, prefixes, 0,
+                           should_stop=should_stop, progress=progress)
 
 
 def _remove_quietly(path):

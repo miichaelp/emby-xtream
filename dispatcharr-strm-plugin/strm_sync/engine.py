@@ -223,8 +223,9 @@ class Engine:
                 outcome = "updated"
         return outcome
 
-    def _scan_progress(self, kind, seen, stats):
-        self.control.progress(kind, f"Checking for old files: {seen:,} looked at", 0, 0, stats)
+    def _scan_progress(self, kind, stage, count, stats):
+        text = "looked at" if stage == "scan" else "removed"
+        self.control.progress(kind, f"Checking for old files: {count:,} {text}", 0, 0, stats)
 
     def _heartbeat(self, label, stats, total, every=30.0):
         """A progress line in the log every 30 seconds, with speed and time left."""
@@ -562,7 +563,7 @@ class Engine:
             if written:
                 result = core.cleanup_orphans(root, written, prefixes, 0, nfos, self.written_urls, renames_only=True,
                                               should_stop=self._stop_requested,
-                                              progress=lambda n: self._scan_progress(kind, n, stats))
+                                              progress=lambda stage, n: self._scan_progress(kind, stage, n, stats))
                 stats["deleted"] = result.deleted
                 if result.renamed:
                     self.log.info("Removed %d old %s file name(s) left by a rename: the same streams are on "
@@ -573,7 +574,7 @@ class Engine:
         self.log.info("Checking the %s folder for old files", kind)
         result = core.cleanup_orphans(root, written, prefixes, self.s.safety_limit, nfos, self.written_urls,
                                       should_stop=self._stop_requested,
-                                      progress=lambda n: self._scan_progress(kind, n, stats))
+                                      progress=lambda stage, n: self._scan_progress(kind, stage, n, stats))
         if result.renamed:
             self.log.info("Removed %d old %s file name(s) left by a rename: the same streams are on disk "
                           "under their new names", result.renamed, kind)

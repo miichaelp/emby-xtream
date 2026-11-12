@@ -57,10 +57,10 @@ class Settings:
         self.xc_username = str(raw.get("xc_username") or "").strip()
         self.xc_password = str(raw.get("xc_password") or "").strip()
         self.multi_version = _as_bool(raw.get("multi_version"), True)
-        self.version_label = str(raw.get("version_label") or "provider").strip().lower()
+        self.version_label = str(raw.get("version_label") or "folder").strip().lower()
         if self.version_label not in ("provider", "number", "folder"):
-            self.version_label = "provider"
-        self.episode_titles = _as_bool(raw.get("episode_titles"), True)
+            self.version_label = "folder"
+        self.episode_titles = _as_bool(raw.get("episode_titles"), False)
         self.movie_folder_mode = str(raw.get("movie_folder_mode") or "single").strip().lower()
         self.series_folder_mode = str(raw.get("series_folder_mode") or "single").strip().lower()
         self.tmdb_folder_ids = _as_bool(raw.get("tmdb_folder_ids"), True)

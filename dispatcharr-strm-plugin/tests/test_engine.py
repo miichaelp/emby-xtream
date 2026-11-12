@@ -8,7 +8,9 @@ BASE = "http://d:9191"
 
 
 def settings(tmp_path, **over):
-    raw = {"output_dir": str(tmp_path), "base_url": BASE + "/"}
+    # The tests were written against provider-named versions with episode titles; the
+    # defaults are now folder names without titles, which tests ask for explicitly.
+    raw = {"output_dir": str(tmp_path), "base_url": BASE + "/", "version_label": "provider", "episode_titles": True}
     raw.update(over)
     return Settings(raw)
 

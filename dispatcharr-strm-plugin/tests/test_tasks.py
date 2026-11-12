@@ -181,6 +181,10 @@ def test_manifest_and_dashboard_page(env, tmp_path, monkeypatch):
     defaults = {f["id"]: f.get("default") for f in manifest["fields"] if f["type"] != "info"}
     s = Settings(defaults)
     assert s.cleanup_orphans and s.multi_version and s.safety_limit == 0.2 and s.url_style == "proxy"
+    assert s.version_label == "folder" and s.episode_titles is False
+    # Every setting sits under a heading, and every heading has words under it.
+    assert manifest["fields"][0]["type"] == "info"
+    assert all(f.get("description") for f in manifest["fields"] if f["type"] == "info")
 
     monkeypatch.setattr(runtime, "logos_dir", lambda: str(tmp_path / "logos"))
     assert runtime.install_dashboard()

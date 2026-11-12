@@ -1,61 +1,384 @@
 {
   "name": "STRM Sync",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "description": "Writes .strm files for Dispatcharr's movies and series by hand, after each M3U refresh or on a schedule, so Emby, Jellyfin or Plex can add them as normal libraries. Open the dashboard with the Docs link.",
   "author": "emby-xtream",
   "help_url": "/logos/strm_sync/index.html",
   "fields": [
-    { "id": "h_basic", "type": "info", "label": "Where the files go", "description": "Dashboard: open /logos/strm_sync/index.html on this Dispatcharr address (the Docs link above). Syncing by hand works straight away. For the automatic and scheduled syncs, restart Dispatcharr once after enabling or updating the plugin." },
-    { "id": "output_dir", "label": "STRM folder (inside the Dispatcharr container)", "type": "string", "default": "/strm", "help_text": "The right-hand side of the volume line in docker-compose.yml, for example /strm for '- C:/Users/you/STRM:/strm'. Movies go to <folder>/Movies and series to <folder>/Shows." },
-    { "id": "base_url", "label": "Dispatcharr address as your media server reaches it", "type": "string", "default": "", "placeholder": "http://192.168.0.11:9191", "help_text": "Written into every .strm file. Use an address that works from the Emby machine, not localhost unless both run on the same machine." },
-    { "id": "sync_movies", "label": "Sync movies", "type": "boolean", "default": true },
-    { "id": "sync_series", "label": "Sync series", "type": "boolean", "default": true },
-
-    { "id": "h_when", "type": "info", "label": "When to sync", "description": "You can always sync by hand with the buttons below or on the dashboard. A refresh and a schedule can both be on." },
-    { "id": "auto_sync", "label": "Sync after each M3U refresh", "type": "boolean", "default": true, "help_text": "Starts when Dispatcharr has finished loading the account's movies and series." },
-    { "id": "schedule", "label": "Sync on a schedule", "type": "select", "default": "off", "options": [ { "value": "off", "label": "Off" }, { "value": "interval", "label": "Every few hours" }, { "value": "daily", "label": "Once a day" } ] },
-    { "id": "schedule_hours", "label": "Hours between syncs (every few hours)", "type": "number", "default": 24, "help_text": "Counted from the last sync, including one run by hand." },
-    { "id": "schedule_time", "label": "Time of day (once a day)", "type": "string", "default": "03:00", "placeholder": "03:00", "help_text": "24-hour time, in the time zone set in Dispatcharr's system settings." },
-
-    { "id": "h_names", "type": "info", "label": "Names and folders", "description": "Layout: Movies/Title (Year) [tmdbid=1]/Title (Year) [tmdbid=1].strm and Shows/Show/Season 01/Show - S01E01 - Title.strm" },
-    { "id": "movie_folder_mode", "label": "Movie folders", "type": "select", "default": "single", "options": [ { "value": "single", "label": "One Movies folder" }, { "value": "category", "label": "A subfolder per category" } ] },
-    { "id": "series_folder_mode", "label": "Series folders", "type": "select", "default": "single", "options": [ { "value": "single", "label": "One Shows folder" }, { "value": "category", "label": "A subfolder per category" } ] },
-    { "id": "tmdb_folder_ids", "label": "Add [tmdbid=...] to folder names", "type": "boolean", "default": true, "help_text": "Lets Emby and Jellyfin match titles straight away. Uses the TMDB id Dispatcharr already has." },
-    { "id": "add_year", "label": "Add the year to titles that lack one", "type": "boolean", "default": true },
-    { "id": "clean_names", "label": "Clean up names", "type": "boolean", "default": true, "help_text": "Removes provider tags such as |UK|, 'EN - ' or '4K-NF - ' from the start of titles." },
-    { "id": "remove_terms", "label": "Also remove these terms from names", "type": "text", "default": "", "help_text": "One per line." },
-    { "id": "excluded_categories", "label": "Categories to leave out", "type": "text", "default": "", "help_text": "One category name per line. * is a wildcard, for example *XXX* or FR - *. Categories switched off in Dispatcharr's VOD settings are always left out." },
-    { "id": "episode_titles", "label": "Put episode titles in file names", "type": "boolean", "default": true, "help_text": "Off: Show - S01E01.strm. Emby and Jellyfin take episode titles from their own metadata, and some providers send titles in another language. Changing this renames the files; the next full sync removes the old names." },
-    { "id": "write_nfo", "label": "Write .nfo files with the TMDB id", "type": "boolean", "default": false },
-
-    { "id": "h_versions", "type": "info", "label": "Versions and playback", "description": "A title that more than one provider carries can get one file per provider, which Emby shows as versions." },
-    { "id": "multi_version", "label": "One version per provider", "type": "boolean", "default": true },
-    { "id": "version_label", "label": "Name versions by", "type": "select", "default": "provider", "options": [ { "value": "folder", "label": "Provider folder (e.g. AMAZON SERIES 4K 3840p)" }, { "value": "provider", "label": "Provider (M3U account) name" }, { "value": "number", "label": "Number (Version 2, Version 3)" } ], "help_text": "Folder: each version is named after the provider category it comes from, useful when one provider lists a title in several folders. Name clean-up terms are not applied to these labels." },
-    { "id": "url_style", "label": "Stream URL", "type": "select", "default": "proxy", "options": [ { "value": "proxy", "label": "Dispatcharr proxy (no login in the files)" }, { "value": "xtream", "label": "Xtream URL (Dispatcharr shows which user is watching)" } ] },
-    { "id": "xc_username", "label": "Dispatcharr user name (Xtream URL only)", "type": "string", "default": "" },
-    { "id": "xc_password", "label": "That user's Xtream password (Xtream URL only)", "type": "string", "input_type": "password", "default": "", "help_text": "The XC password from the user's profile in Dispatcharr, not an admin login. It is written into the .strm files." },
-
-    { "id": "h_series", "type": "info", "label": "Episode lists", "description": "Dispatcharr only loads a show's episodes when someone opens it. The plugin asks for the missing ones, one show at a time, and again when the provider changes a show." },
-    { "id": "fetch_episodes", "label": "Ask the IPTV provider for missing episode lists", "type": "boolean", "default": true, "help_text": "Off: no requests go to your IPTV provider, and only shows whose episodes Dispatcharr already has (shows someone has opened) get files. Movies never need the provider." },
-    { "id": "episode_fetch_limit", "label": "Most shows to fetch per sync (0 = no limit)", "type": "number", "default": 0, "help_text": "The first sync asks the provider once per show. Set a limit to spread a large catalogue over several syncs." },
-    { "id": "episode_fetch_delay_ms", "label": "Least time between provider requests (ms)", "type": "number", "default": 500, "help_text": "A request the provider refuses (HTTP 403 or 429) is tried up to five more times, after 1, 2, 3, 5 and 8 seconds." },
-
-    { "id": "h_cleanup", "type": "info", "label": "Clean-up", "description": "Only .strm files this plugin wrote are ever removed. Your own files in the same folders stay." },
-    { "id": "cleanup_orphans", "label": "Remove files for titles Dispatcharr no longer has", "type": "boolean", "default": true },
-    { "id": "safety_limit", "label": "Removal safety limit (%)", "type": "number", "default": 20, "help_text": "With more than 10 files, a sync never removes more than this share at once. 0 turns the limit off." },
-
-    { "id": "h_emby", "type": "info", "label": "Media server (optional)", "description": "Starts a library scan in Emby or Jellyfin when a sync changed files." },
-    { "id": "emby_url", "label": "Emby / Jellyfin address", "type": "string", "default": "", "placeholder": "http://192.168.0.11:8096" },
-    { "id": "emby_api_key", "label": "Emby / Jellyfin API key", "type": "string", "input_type": "password", "default": "" }
+    {
+      "id": "h_start",
+      "type": "info",
+      "label": "1. Where the files go",
+      "description": "Open the dashboard with the Docs link above. After installing or updating the plugin, restart Dispatcharr once."
+    },
+    {
+      "id": "output_dir",
+      "label": "STRM folder",
+      "type": "string",
+      "default": "/strm",
+      "help_text": "The folder inside the Dispatcharr container: the right-hand side of your volume line in docker-compose.yml (for '- C:/Media/STRM:/strm' that is /strm). Movies go into Movies and series into Shows inside it."
+    },
+    {
+      "id": "base_url",
+      "label": "Dispatcharr address",
+      "type": "string",
+      "default": "",
+      "placeholder": "http://192.168.0.11:9191",
+      "help_text": "How Emby reaches Dispatcharr. It is written into every file, so use your computer's network address, not localhost."
+    },
+    {
+      "id": "sync_movies",
+      "label": "Sync movies",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "id": "sync_series",
+      "label": "Sync series",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "id": "h_when",
+      "type": "info",
+      "label": "2. When to sync",
+      "description": "You can always sync by hand with the buttons below or on the dashboard. The two options here can be combined."
+    },
+    {
+      "id": "auto_sync",
+      "label": "After each M3U refresh",
+      "type": "boolean",
+      "default": true,
+      "help_text": "Starts once Dispatcharr has loaded the account's movies and series."
+    },
+    {
+      "id": "schedule",
+      "label": "On a schedule",
+      "type": "select",
+      "default": "off",
+      "options": [
+        {
+          "value": "off",
+          "label": "Off"
+        },
+        {
+          "value": "interval",
+          "label": "Every few hours"
+        },
+        {
+          "value": "daily",
+          "label": "Once a day"
+        }
+      ]
+    },
+    {
+      "id": "schedule_hours",
+      "label": "Every few hours: hours between syncs",
+      "type": "number",
+      "default": 24,
+      "help_text": "Only used with 'Every few hours'. Counted from the last sync, including one run by hand."
+    },
+    {
+      "id": "schedule_time",
+      "label": "Once a day: time",
+      "type": "string",
+      "default": "03:00",
+      "placeholder": "03:00",
+      "help_text": "Only used with 'Once a day'. 24-hour time, in the time zone set in Dispatcharr's settings."
+    },
+    {
+      "id": "h_names",
+      "type": "info",
+      "label": "3. File and folder names",
+      "description": "Movies/Title (Year) [tmdbid=1]/Title (Year) [tmdbid=1].strm and Shows/Show [tmdbid=1]/Season 01/Show - S01E01.strm"
+    },
+    {
+      "id": "clean_names",
+      "label": "Tidy up titles",
+      "type": "boolean",
+      "default": true,
+      "help_text": "Removes provider tags such as |UK|, 'EN - ' or '4K-NF - ' from the start of titles, so Emby recognises them."
+    },
+    {
+      "id": "remove_terms",
+      "label": "Also remove these words from titles",
+      "type": "text",
+      "default": "",
+      "help_text": "One per line, for example MULTI or [VOSTFR]. Not applied to version names."
+    },
+    {
+      "id": "add_year",
+      "label": "Add the year to titles",
+      "type": "boolean",
+      "default": true,
+      "help_text": "Only where the title has none. Helps Emby tell remakes apart."
+    },
+    {
+      "id": "tmdb_folder_ids",
+      "label": "Add the TMDB id to folder names",
+      "type": "boolean",
+      "default": true,
+      "help_text": "[tmdbid=...] lets Emby and Jellyfin match each title straight away."
+    },
+    {
+      "id": "episode_titles",
+      "label": "Put episode titles in file names",
+      "type": "boolean",
+      "default": false,
+      "help_text": "Off: Show - S01E01.strm. Emby takes episode titles from its own metadata, and providers sometimes send them in another language."
+    },
+    {
+      "id": "movie_folder_mode",
+      "label": "Movies folder layout",
+      "type": "select",
+      "default": "single",
+      "options": [
+        {
+          "value": "single",
+          "label": "All movies in one Movies folder"
+        },
+        {
+          "value": "category",
+          "label": "A subfolder per provider category"
+        }
+      ]
+    },
+    {
+      "id": "series_folder_mode",
+      "label": "Shows folder layout",
+      "type": "select",
+      "default": "single",
+      "options": [
+        {
+          "value": "single",
+          "label": "All series in one Shows folder"
+        },
+        {
+          "value": "category",
+          "label": "A subfolder per provider category"
+        }
+      ]
+    },
+    {
+      "id": "write_nfo",
+      "label": "Write .nfo files",
+      "type": "boolean",
+      "default": false,
+      "help_text": "A small file with the TMDB id next to each title. Usually not needed when the id is in the folder name."
+    },
+    {
+      "id": "h_versions",
+      "type": "info",
+      "label": "4. Versions",
+      "description": "When the provider lists a title more than once (in several folders, or on several accounts), each copy becomes a version you can pick in Emby."
+    },
+    {
+      "id": "multi_version",
+      "label": "Make a version of each copy",
+      "type": "boolean",
+      "default": true,
+      "help_text": "Off: only the best copy, one file per title."
+    },
+    {
+      "id": "version_label",
+      "label": "Name versions after",
+      "type": "select",
+      "default": "folder",
+      "options": [
+        {
+          "value": "folder",
+          "label": "The provider folder (e.g. NETFLIX SERIES 4K 3840p)"
+        },
+        {
+          "value": "provider",
+          "label": "The M3U account"
+        },
+        {
+          "value": "number",
+          "label": "A number (Version 2, Version 3)"
+        }
+      ],
+      "help_text": "What Emby shows in its version list. Titles are tidied, version names are not, so tags like 4K stay."
+    },
+    {
+      "id": "excluded_categories",
+      "label": "Leave out these provider folders",
+      "type": "text",
+      "default": "",
+      "help_text": "One folder name per line; * matches anything, e.g. *GREECE* or *XXX*. Folders switched off in Dispatcharr are always left out."
+    },
+    {
+      "id": "h_play",
+      "type": "info",
+      "label": "5. How Emby plays the files",
+      "description": "Every file holds a link to Dispatcharr, which streams from your IPTV provider."
+    },
+    {
+      "id": "url_style",
+      "label": "Link type",
+      "type": "select",
+      "default": "proxy",
+      "options": [
+        {
+          "value": "proxy",
+          "label": "Dispatcharr link (recommended, no login needed)"
+        },
+        {
+          "value": "xtream",
+          "label": "Xtream link with a Dispatcharr login"
+        }
+      ],
+      "help_text": "The Xtream link shows in Dispatcharr which user is watching, but writes the login into every file."
+    },
+    {
+      "id": "h_xtream",
+      "type": "info",
+      "label": "Only for 'Xtream link with a Dispatcharr login'",
+      "description": "Leave these empty with the recommended Dispatcharr link."
+    },
+    {
+      "id": "xc_username",
+      "label": "Dispatcharr user name",
+      "type": "string",
+      "default": ""
+    },
+    {
+      "id": "xc_password",
+      "label": "That user's XC password",
+      "type": "string",
+      "input_type": "password",
+      "default": "",
+      "help_text": "The XC password from the user's profile in Dispatcharr, not the admin password."
+    },
+    {
+      "id": "h_emby",
+      "type": "info",
+      "label": "6. Emby or Jellyfin (optional)",
+      "description": "Fill both in to start a library scan after every sync that changed files. Leave empty to skip."
+    },
+    {
+      "id": "emby_url",
+      "label": "Emby or Jellyfin address",
+      "type": "string",
+      "default": "",
+      "placeholder": "http://192.168.0.11:8096"
+    },
+    {
+      "id": "emby_api_key",
+      "label": "API key",
+      "type": "string",
+      "input_type": "password",
+      "default": "",
+      "help_text": "Emby: Dashboard, then API Keys, then New API Key."
+    },
+    {
+      "id": "h_adv",
+      "type": "info",
+      "label": "Advanced",
+      "description": "The defaults suit most setups."
+    },
+    {
+      "id": "fetch_episodes",
+      "label": "Ask the IPTV provider for missing episode lists",
+      "type": "boolean",
+      "default": true,
+      "help_text": "Dispatcharr only has a show's episodes once someone opens it. On: the plugin asks the provider, one request per show, mostly on the first sync. Off: no requests to the provider, but shows nobody opened get no files. Movies never need this."
+    },
+    {
+      "id": "episode_fetch_limit",
+      "label": "Most episode lists per sync",
+      "type": "number",
+      "default": 0,
+      "help_text": "0 = no limit. Set e.g. 200 to spread a large first sync over several syncs."
+    },
+    {
+      "id": "episode_fetch_delay_ms",
+      "label": "Pause between provider requests (ms)",
+      "type": "number",
+      "default": 500,
+      "help_text": "A request the provider refuses is tried up to five more times, after 1, 2, 3, 5 and 8 seconds."
+    },
+    {
+      "id": "cleanup_orphans",
+      "label": "Remove files of titles that are gone",
+      "type": "boolean",
+      "default": true,
+      "help_text": "Only files this plugin wrote are ever removed; your own files stay. A stopped sync removes nothing."
+    },
+    {
+      "id": "safety_limit",
+      "label": "Removal safety limit (%)",
+      "type": "number",
+      "default": 20,
+      "help_text": "With more than 10 files, a sync never removes more than this share at once, in case the provider suddenly lists far fewer titles. Renamed files are not counted. 0 = no limit."
+    }
   ],
   "actions": [
-    { "id": "sync_all", "label": "Sync movies and series", "description": "Runs in the background. Follow it on the dashboard.", "button_label": "Sync now", "button_variant": "filled", "button_color": "green" },
-    { "id": "sync_movies", "label": "Sync movies only", "button_label": "Sync movies", "button_variant": "outline" },
-    { "id": "sync_series", "label": "Sync series only", "button_label": "Sync series", "button_variant": "outline" },
-    { "id": "stop", "label": "Stop the running sync", "description": "Files already written are kept and nothing is removed.", "button_label": "Stop", "button_variant": "outline", "button_color": "red" },
-    { "id": "retry_failed", "label": "Retry failed items", "button_label": "Retry", "button_variant": "outline" },
-    { "id": "status", "label": "Show status", "button_label": "Status", "button_variant": "subtle" },
-    { "id": "delete_movies", "label": "Delete all movie files", "description": "Removes every movie .strm this plugin wrote.", "button_label": "Delete movies", "button_variant": "outline", "button_color": "red", "confirm": { "required": true, "title": "Delete all movie files?", "message": "Every movie .strm file this plugin wrote will be removed. Your own files stay." } },
-    { "id": "delete_series", "label": "Delete all series files", "description": "Removes every episode .strm this plugin wrote.", "button_label": "Delete series", "button_variant": "outline", "button_color": "red", "confirm": { "required": true, "title": "Delete all series files?", "message": "Every episode .strm file this plugin wrote will be removed. Your own files stay." } }
+    {
+      "id": "sync_all",
+      "label": "Sync movies and series",
+      "description": "Runs in the background. Follow it on the dashboard.",
+      "button_label": "Sync now",
+      "button_variant": "filled",
+      "button_color": "green"
+    },
+    {
+      "id": "sync_movies",
+      "label": "Sync movies only",
+      "button_label": "Sync movies",
+      "button_variant": "outline"
+    },
+    {
+      "id": "sync_series",
+      "label": "Sync series only",
+      "button_label": "Sync series",
+      "button_variant": "outline"
+    },
+    {
+      "id": "stop",
+      "label": "Stop the running sync",
+      "description": "Files already written are kept and nothing is removed.",
+      "button_label": "Stop",
+      "button_variant": "outline",
+      "button_color": "red"
+    },
+    {
+      "id": "retry_failed",
+      "label": "Retry failed items",
+      "button_label": "Retry",
+      "button_variant": "outline"
+    },
+    {
+      "id": "status",
+      "label": "Show status",
+      "button_label": "Status",
+      "button_variant": "subtle"
+    },
+    {
+      "id": "delete_movies",
+      "label": "Delete all movie files",
+      "description": "Removes every movie .strm this plugin wrote.",
+      "button_label": "Delete movies",
+      "button_variant": "outline",
+      "button_color": "red",
+      "confirm": {
+        "required": true,
+        "title": "Delete all movie files?",
+        "message": "Every movie .strm file this plugin wrote will be removed. Your own files stay."
+      }
+    },
+    {
+      "id": "delete_series",
+      "label": "Delete all series files",
+      "description": "Removes every episode .strm this plugin wrote.",
+      "button_label": "Delete series",
+      "button_variant": "outline",
+      "button_color": "red",
+      "confirm": {
+        "required": true,
+        "title": "Delete all series files?",
+        "message": "Every episode .strm file this plugin wrote will be removed. Your own files stay."
+      }
+    }
   ]
 }

@@ -29,12 +29,12 @@ sync makes no requests to Dispatcharr's API and cannot overload it.
 - **Movies**: `Movies/Title (Year) [tmdbid=1]/Title (Year) [tmdbid=1].strm`
 - **Series**: `Shows/Show/Season 01/Show - S01E01 - Title.strm`. Specials go to `Season 00`.
 - **Versions**: a title that more than one provider carries, or one provider lists in several
-  folders, gets one file per copy, which Emby shows as versions. **Name versions by** chooses the
-  label: the provider folder (`Title - NETFLIX SERIES 4K 3840p.strm`, raised letters such as
+  folders, gets one file per copy, which Emby shows as versions. **Name versions after** chooses the
+  label: the provider folder (the default) (`Title - NETFLIX SERIES 4K 3840p.strm`, raised letters such as
   `⁴ᴷ ³⁸⁴⁰ᵖ` turned into normal ones, clean-up terms not applied), the provider name, or a
   number.
-- **Episode titles** in file names can be turned off (`Show - S01E01.strm`); media servers take
-  titles from their own metadata, and some providers send them in another language.
+- **Episode titles** are left out of file names by default (`Show - S01E01.strm`); media servers
+  take titles from their own metadata, and some providers send them in another language.
 - **Renaming**: changing either setting renames files. The next full sync writes the new names
   and removes the old ones. A file whose stream was just written under another name is a rename,
   not a lost title, so the removal safety limit does not hold those back. A stopped sync removes

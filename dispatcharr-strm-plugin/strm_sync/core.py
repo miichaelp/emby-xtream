@@ -313,7 +313,7 @@ class CleanupResult:
 
 
 def cleanup_orphans(root, written_paths, prefixes, safety_ratio, written_nfos=None, written_urls=None,
-                    renames_only=False):
+                    renames_only=False, should_stop=None, progress=None):
     """Delete .strm files we own under root that this run did not write.
 
     written_paths: every .strm path this run wrote or confirmed (absolute).
@@ -324,7 +324,13 @@ def cleanup_orphans(root, written_paths, prefixes, safety_ratio, written_nfos=No
     same stream is on disk under its new name, so it is removed whatever the
     safety limit, which exists to catch a catalogue that shrank, not renames.
     renames_only: remove only those old names, for a run that did not see the
-    whole catalogue (stopped, partial, or with failures).
+    whole catalogue (partial, or with failures).
+    should_stop: checked while scanning and deleting; when it says stop, nothing
+    more is deleted. progress: called now and then with the number of files seen.
+
+    Only files this run did not write are opened. A file it wrote is ours by
+    definition, and opening all of them cost about 50 minutes for 200,000 files
+    on a Docker Desktop for Windows folder.
 
     Only files are deleted, one at a time, and only ours. A folder is removed
     only once it is empty. Never a recursive delete: a folder match is not
@@ -342,17 +348,27 @@ def cleanup_orphans(root, written_paths, prefixes, safety_ratio, written_nfos=No
     kept_nfos = {_path_key(p) for p in (written_nfos or ())}
     current_urls = set(written_urls or ())
     orphans, renamed = [], []
+    seen = 0
     for dirpath, _dirs, files in os.walk(root):
         for name in files:
             if not name.lower().endswith(".strm"):
                 continue
+            seen += 1
+            if seen % 2000 == 0:
+                if progress:
+                    progress(seen)
+                if should_stop and should_stop():
+                    result.skipped_reason = "the sync was stopped"
+                    return result
             path = os.path.join(dirpath, name)
+            if _path_key(path) in written:
+                result.owned += 1
+                continue
             url = owned_strm_url(path, prefixes)
             if url is None:
                 continue
             result.owned += 1
-            if _path_key(path) not in written:
-                (renamed if url in current_urls else orphans).append(path)
+            (renamed if url in current_urls else orphans).append(path)
 
     result.orphans = len(orphans)
     result.renamed = len(renamed)
@@ -371,6 +387,8 @@ def cleanup_orphans(root, written_paths, prefixes, safety_ratio, written_nfos=No
     touched_dirs = set()
     titles = []
     for path in orphans:
+        if should_stop and should_stop():
+            break
         directory = os.path.dirname(path)
         stem = os.path.basename(path)[:-5]
         try:

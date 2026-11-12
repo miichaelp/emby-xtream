@@ -37,7 +37,8 @@ sync makes no requests to Dispatcharr's API and cannot overload it.
   titles from their own metadata, and some providers send them in another language.
 - **Renaming**: changing either setting renames files. The next full sync writes the new names
   and removes the old ones. A file whose stream was just written under another name is a rename,
-  not a lost title, so the removal safety limit does not hold those back.
+  not a lost title, so the removal safety limit does not hold those back. A stopped sync removes
+  nothing; the next full one tidies up.
 - **Episode lists**: Dispatcharr only loads a show's episodes from the IPTV provider when someone
   opens the show. The plugin asks the provider for the missing ones, one show at a time with a
   pause between requests, just before writing that show, and again when the provider changes a

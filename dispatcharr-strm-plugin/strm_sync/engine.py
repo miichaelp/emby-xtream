@@ -223,6 +223,9 @@ class Engine:
                 outcome = "updated"
         return outcome
 
+    def _scan_progress(self, kind, seen, stats):
+        self.control.progress(kind, f"Checking for old files: {seen:,} looked at", 0, 0, stats)
+
     def _heartbeat(self, label, stats, total, every=30.0):
         """A progress line in the log every 30 seconds, with speed and time left."""
         now = self.clock()
@@ -548,20 +551,29 @@ class Engine:
             reason = f"{stats['failed']} title(s) failed to write"
         root = os.path.join(self.s.output_dir, root_name)
         prefixes = core.owned_url_prefixes(self.s.base_url)
+        if self.stopped:
+            # Stop means stop: no scan of the library. Renamed files are tidied by the next full run.
+            self.log.info("Removing old %s files skipped: the sync was stopped", kind)
+            return
         if reason:
             self.log.info("Removing files of titles no longer available skipped: %s", reason)
             # Old names of renamed files are still safe to remove: their streams were just
             # written under the new names.
             if written:
-                result = core.cleanup_orphans(root, written, prefixes, 0, nfos, self.written_urls, renames_only=True)
+                result = core.cleanup_orphans(root, written, prefixes, 0, nfos, self.written_urls, renames_only=True,
+                                              should_stop=self._stop_requested,
+                                              progress=lambda n: self._scan_progress(kind, n, stats))
                 stats["deleted"] = result.deleted
                 if result.renamed:
                     self.log.info("Removed %d old %s file name(s) left by a rename: the same streams are on "
                                   "disk under their new names", result.renamed, kind)
             return
 
-        self.control.progress(kind, "Removing files for titles no longer available", stats["total"], stats["total"], stats)
-        result = core.cleanup_orphans(root, written, prefixes, self.s.safety_limit, nfos, self.written_urls)
+        self.control.progress(kind, "Checking for old files", 0, 0, stats, force=True)
+        self.log.info("Checking the %s folder for old files", kind)
+        result = core.cleanup_orphans(root, written, prefixes, self.s.safety_limit, nfos, self.written_urls,
+                                      should_stop=self._stop_requested,
+                                      progress=lambda n: self._scan_progress(kind, n, stats))
         if result.renamed:
             self.log.info("Removed %d old %s file name(s) left by a rename: the same streams are on disk "
                           "under their new names", result.renamed, kind)

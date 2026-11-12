@@ -204,3 +204,19 @@ def test_cleanup_removes_renamed_files_past_the_safety_limit(tmp_path):
                                   written_urls={f"http://d:9191/proxy/vod/movie/u{i}" for i in range(20)})
     assert result.renamed == 20 and result.deleted == 20 and not result.skipped_reason
     assert not any(os.path.exists(p) for p in old) and all(os.path.exists(p) for p in new)
+
+
+def test_cleanup_stops_when_asked(tmp_path):
+    root = tmp_path / "Shows"
+    for i in range(4100):
+        _strm(root / "S" / f"e{i}.strm")
+    calls = {"n": 0}
+
+    def stop():
+        calls["n"] += 1
+        return calls["n"] >= 2                     # stop at the second check (4000 files in)
+
+    seen = []
+    result = core.cleanup_orphans(str(root), {str(root / "x.strm")}, PREFIXES, 0, should_stop=stop,
+                                  progress=seen.append)
+    assert result.deleted == 0 and result.skipped_reason == "the sync was stopped" and seen == [2000, 4000]

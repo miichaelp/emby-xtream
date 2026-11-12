@@ -440,12 +440,31 @@ def test_a_rename_never_hides_a_real_catalogue_drop(tmp_path):
     assert any("safety limit" in w for w in result["warnings"])
 
 
-def test_a_stopped_sync_still_removes_renamed_names_but_nothing_else(tmp_path):
+def test_a_stopped_sync_removes_nothing_and_does_not_scan(tmp_path, monkeypatch):
     run(tmp_path, FakeSource(movies=[movie(i, f"Movie {i}") for i in range(1, 6)]))
-    # Movie 5 has gone from Dispatcharr; movies 1-4 are renamed (year added). Stop after two.
+    reads = []
+    monkeypatch.setattr(core, "owned_strm_url", lambda path, prefixes: reads.append(path))
     result = run(tmp_path, FakeSource(movies=[movie(i, f"Movie {i}", year=2000) for i in range(1, 5)]),
                  control=FakeControl(stop_after=3), safety_limit=0)
+    assert result["stopped"] and result["movies"]["deleted"] == 0 and reads == []
+    assert "Movies/Movie 1/Movie 1.strm" in tree(tmp_path)                   # tidied by the next full run
+
+
+def test_a_partial_run_still_removes_renamed_names_but_nothing_else(tmp_path):
+    run(tmp_path, FakeSource(movies=[movie(i, f"Movie {i}") for i in range(1, 6)]))
+    blocker = tmp_path / "Movies" / "Movie 9 (2000)"
+    blocker.write_text("in the way")                                          # one title fails to write
+    movies = [movie(i, f"Movie {i}", year=2000) for i in range(1, 5)] + [movie(9, "Movie 9", year=2000)]
+    result = run(tmp_path, FakeSource(movies=movies), safety_limit=0)
     files = tree(tmp_path)
-    assert result["stopped"] and result["movies"]["deleted"] == 2             # the two renamed so far
-    assert "Movies/Movie 1/Movie 1.strm" not in files and "Movies/Movie 1 (2000)/Movie 1 (2000).strm" in files
-    assert "Movies/Movie 3/Movie 3.strm" in files and "Movies/Movie 5/Movie 5.strm" in files
+    assert result["movies"]["failed"] == 1 and result["movies"]["deleted"] == 4   # the four renamed
+    assert "Movies/Movie 1/Movie 1.strm" not in files and "Movies/Movie 5/Movie 5.strm" in files
+
+
+def test_clean_up_opens_only_files_this_run_did_not_write(tmp_path, monkeypatch):
+    run(tmp_path, FakeSource(movies=[movie(i, f"Movie {i}") for i in range(1, 30)]))
+    real = core.owned_strm_url
+    reads = []
+    monkeypatch.setattr(core, "owned_strm_url", lambda path, prefixes: reads.append(path) or real(path, prefixes))
+    result = run(tmp_path, FakeSource(movies=[movie(i, f"Movie {i}") for i in range(1, 29)]))
+    assert [os.path.basename(p) for p in reads] == ["Movie 29.strm"] and result["movies"]["deleted"] == 1

@@ -237,3 +237,43 @@ def test_delete_all_stops_part_way_through_deleting(tmp_path):
     # The stop is asked for after the report at 1,000; the file being deleted then is the last.
     assert result.deleted == 1001 and result.skipped_reason == "the sync was stopped"
     assert len(os.listdir(root / "S")) == 199
+
+
+USER_TAGS = ["4K-", "4K-EN - ", "4K-MRVL - ", "4K-TOP - ", "4K-AMZ - ", "4K-A+ - ", "4K-NF -", "4k-MAX -",
+             "4K-SC - ", "4K -SC-", "4K-DE-DV - ", "4K-D+ - ", "4M-", "PRMT - ", "AMZ -", "Sky - ", "A+ - ",
+             "D+ - ", "DSC+ - ", "DSC+S - ", "TOP - ", "SHWT - ", "NICK - ", "MAX - ", "NF-DO - ", "UNV - ",
+             "EN-DO - ", "EN- ", "P+ - ", "#", "SC -", "SC- ", "SC-DO - ", "MRVL - ", "GR -"]
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("4K-NF - The Witcher (US)", "The Witcher (US)"),
+    ("4K-MAX - Youth (2026) (GB)", "Youth (2026) (GB)"),
+    ("4K -SC- Outside (2026) (GB)", "Outside (2026) (GB)"),
+    ("4K-SC - Outside", "Outside"),
+    ("4K-DE-DV - Dark", "Dark"),
+    ("NF-DO - Boots (2025) (US)", "Boots (2025) (US)"),
+    ("DSC+S - Gold Rush", "Gold Rush"),
+    ("DSC+ - Gold Rush", "Gold Rush"),
+    ("EN-DO - Planet Earth", "Planet Earth"),
+    ("EN- Planet Earth", "Planet Earth"),
+    ("SC-DO - Outside", "Outside"),
+    ("SC- Outside", "Outside"),
+    ("# Alive", "Alive"),
+    ("Sky - High (2020)", "High (2020)"),                 # a start tag, as asked
+    ("Under the Sky - Part 2", "Under the Sky - Part 2"),  # in the middle: untouched
+    ("En Vivo", "En Vivo"),                              # "EN-" needs its dash
+    ("Maximum Overdrive", "Maximum Overdrive"),          # "MAX - " needs its dash
+    ("4K-", "4K-"),                                      # never cleaned down to nothing
+])
+def test_user_start_tags(raw, expected):
+    assert core.clean_name(raw, prefix_patterns=core.prefix_tag_patterns(USER_TAGS)) == expected
+
+
+def test_default_start_tags_are_the_user_list():
+    import json
+
+    manifest = json.load(open(os.path.join(os.path.dirname(core.__file__), "plugin.json"), encoding="utf-8"))
+    field = next(f for f in manifest["fields"] if f["id"] == "prefix_tags")
+    tags = field["default"].splitlines()
+    assert "4K -SC-" in tags and "#" in tags and "NF-DO - " in tags
+    assert core.clean_name("4K-AMZ - The Boys", prefix_patterns=core.prefix_tag_patterns(tags)) == "The Boys"

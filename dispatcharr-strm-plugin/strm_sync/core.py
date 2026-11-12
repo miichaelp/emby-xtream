@@ -46,8 +46,42 @@ def parse_terms(text):
     return [t.strip() for t in re.split(r"[\r\n,]+", str(text)) if t.strip()]
 
 
-def clean_name(name, remove_terms=None, enabled=True):
-    """Remove provider tags (|UK|, "EN - ", "4K-NF - ") and the user's own terms."""
+def prefix_tag_patterns(tags):
+    """Regexes for the user's provider tags, matched only at the start of a title.
+
+    Spacing around dashes does not matter ("4K -SC-" matches "4K-SC - "), a dash in
+    the tag is required in the title (so "EN-" leaves "En Vivo" alone), and case is
+    ignored. Longest tags first, so "4K-NF - " wins over "4K-".
+    """
+    out = []
+    for tag in sorted({t.strip() for t in tags or () if t and t.strip()}, key=len, reverse=True):
+        parts = []
+        for ch in tag:
+            if ch == "-":
+                parts.append(r"\s*-\s*")
+            elif ch.isspace():
+                parts.append(r"\s*")
+            else:
+                parts.append(re.escape(ch))
+        out.append(re.compile("^" + "".join(parts) + r"\s*", re.IGNORECASE))
+    return out
+
+
+def strip_prefix_tags(text, patterns):
+    """Removes leading provider tags, again and again ("4K-" then "EN - "), never down to nothing."""
+    changed = True
+    while changed and patterns:
+        changed = False
+        for pattern in patterns:
+            stripped = pattern.sub("", text, count=1)
+            if stripped != text and stripped.strip():
+                text, changed = stripped, True
+                break
+    return text
+
+
+def clean_name(name, remove_terms=None, enabled=True, prefix_patterns=None):
+    """Remove provider tags (|UK|, "EN - ", "4K-NF - ", the user's start tags) and the user's own terms."""
     if not name or not str(name).strip():
         return name or ""
     original = str(name).strip()
@@ -55,6 +89,7 @@ def clean_name(name, remove_terms=None, enabled=True):
         return original
     result = BOX_PREFIX.sub("", original)
     result = BOX_ANYWHERE.sub(" ", result)
+    result = strip_prefix_tags(result.strip(), prefix_patterns)
     result = DASH_PREFIX.sub("", result.strip())
     for term in remove_terms or []:
         result = re.sub(re.escape(term), "", result, flags=re.IGNORECASE)

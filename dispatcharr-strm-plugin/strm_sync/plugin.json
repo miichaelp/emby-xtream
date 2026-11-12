@@ -1,6 +1,6 @@
 {
   "name": "STRM Sync",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Writes .strm files for Dispatcharr's movies and series by hand, after each M3U refresh or on a schedule, so Emby, Jellyfin or Plex can add them as normal libraries. Open the dashboard with the Docs link.",
   "author": "emby-xtream",
   "help_url": "/logos/strm_sync/index.html",
@@ -100,11 +100,18 @@
       "help_text": "Removes provider tags such as |UK|, 'EN - ' or '4K-NF - ' from the start of titles, so Emby recognises them."
     },
     {
+      "id": "prefix_tags",
+      "label": "Provider tags to remove from the start of titles",
+      "type": "text",
+      "default": "4K-EN - \n4K-MRVL - \n4K-TOP - \n4K-AMZ - \n4K-A+ - \n4K-NF -\n4k-MAX -\n4K-SC - \n4K -SC-\n4K-DE-DV - \n4K-D+ - \n4K-\n4M-\nPRMT - \nAMZ -\nSky - \nA+ - \nD+ - \nDSC+ - \nDSC+S - \nTOP - \nSHWT - \nNICK - \nMAX - \nNF-DO - \nUNV - \nEN-DO - \nEN-\nP+ - \n#\nSC-DO - \nSC -\nSC-\nMRVL - \nGR -",
+      "help_text": "One per line. Only removed at the very start of a title, so a title that merely contains the word is left alone. Spacing around dashes and upper/lower case do not matter."
+    },
+    {
       "id": "remove_terms",
-      "label": "Also remove these words from titles",
+      "label": "Also remove these words anywhere in titles",
       "type": "text",
       "default": "",
-      "help_text": "One per line, for example MULTI or [VOSTFR]. Not applied to version names."
+      "help_text": "One per line, for example MULTI or [VOSTFR]. Removed wherever they appear. Not applied to version names."
     },
     {
       "id": "add_year",

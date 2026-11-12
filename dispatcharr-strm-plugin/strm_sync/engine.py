@@ -68,6 +68,8 @@ class Settings:
         self.write_nfo = _as_bool(raw.get("write_nfo"), False)
         self.clean_names = _as_bool(raw.get("clean_names"), True)
         self.remove_terms = core.parse_terms(raw.get("remove_terms"))
+        self.prefix_tags = [t for t in str(raw.get("prefix_tags") or "").splitlines() if t.strip()]
+        self.prefix_patterns = core.prefix_tag_patterns(self.prefix_tags)
         self.excluded_categories = core.parse_terms(raw.get("excluded_categories"))
         self.fetch_episodes = _as_bool(raw.get("fetch_episodes"), True)
         self.episode_fetch_limit = int(_as_number(raw.get("episode_fetch_limit"), 0, 0))
@@ -173,7 +175,7 @@ class Engine:
         return self.stopped
 
     def _title(self, item):
-        name = core.clean_name(item.get("name"), self.s.remove_terms, self.s.clean_names)
+        name = core.clean_name(item.get("name"), self.s.remove_terms, self.s.clean_names, self.s.prefix_patterns)
         if self.s.add_year:
             name = core.with_year(name, item.get("year"))
         return core.with_language(name, item.get("language"))

@@ -59,7 +59,9 @@ sync makes no requests to Dispatcharr's API and cannot overload it.
   plugin wrote are ever deleted; your own files in the same folders stay. With more than 10 files,
   a sync never removes more than the safety limit (20% by default) at once. A sync that was
   stopped, or in which a title failed, removes nothing.
-- **Names**: provider tags such as `|UK|`, `EN - ` or `4K-NF - ` are removed, plus your own terms.
+- **Names**: provider tags such as `|UK|` or `EN - ` are removed, plus a list of provider tags
+  (`4K-NF - `, `NF-DO - `, `4K -SC-` ...) removed only from the start of titles, with spacing
+  and case ignored, plus your own words removed anywhere.
 - **Categories**: VOD categories switched off in Dispatcharr are left out. You can leave out more
   by name, with `*` as a wildcard.
 - **Optional**: `.nfo` files with the TMDB id, a subfolder per category, and a library scan in

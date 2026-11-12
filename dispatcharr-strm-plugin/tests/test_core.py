@@ -234,5 +234,6 @@ def test_delete_all_stops_part_way_through_deleting(tmp_path):
 
     result = core.delete_all_owned(str(root), PREFIXES, should_stop=lambda: ("delete", 1000) in reports,
                                    progress=report)
-    assert result.deleted == 1000 and result.skipped_reason == "the sync was stopped"
-    assert len(os.listdir(root / "S")) == 200
+    # The stop is asked for after the report at 1,000; the file being deleted then is the last.
+    assert result.deleted == 1001 and result.skipped_reason == "the sync was stopped"
+    assert len(os.listdir(root / "S")) == 199

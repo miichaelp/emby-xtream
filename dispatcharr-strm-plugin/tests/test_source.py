@@ -237,3 +237,31 @@ def test_friendly_error(message, expected):
     from strm_sync.source import friendly_error
 
     assert expected in friendly_error(message)
+
+
+def test_one_account_with_a_show_in_two_folders_gives_two_named_versions(world):
+    four_k = vod.VODCategory.objects.create(name="NETFLIX SERIES ⁴ᴷ", category_type="series")
+    off = vod.VODCategory.objects.create(name="NETFLIX GREEK", category_type="series")
+    vod.M3UVODCategoryRelation.objects.create(m3u_account=world.main, category=off, enabled=False)
+    show_obj, plain = _series(world, "Show", world.main, world.drama, "s1")
+    _, uhd = _series(world, "Show", world.main, four_k, "s1-4k")
+    _, greek = _series(world, "Show", world.main, off, "s1-gr")
+    ep = vod.Episode.objects.create(name="One", series=show_obj, season_number=1, episode_number=1)
+    vod.M3UEpisodeRelation.objects.create(m3u_account=world.main, episode=ep, stream_id="11", series_relation=plain)
+    vod.M3UEpisodeRelation.objects.create(m3u_account=world.main, episode=ep, stream_id="12", series_relation=uhd)
+    vod.M3UEpisodeRelation.objects.create(m3u_account=world.main, episode=ep, stream_id="13", series_relation=greek)
+    vod.M3UEpisodeRelation.objects.create(m3u_account=world.backup, episode=ep, stream_id="91")   # no folder recorded
+
+    got = next(source().iter_series())
+    versions = got["episodes"][0]["versions"]
+    # The switched-off Greek folder's copy is left out even though its account carries the show.
+    assert [(v["stream_id"], v["folder"]) for v in versions] == [("11", "Drama"), ("12", "NETFLIX SERIES ⁴ᴷ")]
+
+
+def test_movie_versions_carry_their_folder(world):
+    m = vod.Movie.objects.create(name="Heat")
+    four_k = vod.VODCategory.objects.create(name="MOVIES ⁴ᴷ")
+    vod.M3UMovieRelation.objects.create(m3u_account=world.main, movie=m, category=world.action, stream_id="1")
+    vod.M3UMovieRelation.objects.create(m3u_account=world.main, movie=m, category=four_k, stream_id="2")
+    versions = next(source().iter_movies())["versions"]
+    assert [v["folder"] for v in versions] == ["Action", "MOVIES ⁴ᴷ"]

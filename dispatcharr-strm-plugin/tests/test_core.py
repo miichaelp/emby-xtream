@@ -62,7 +62,18 @@ def test_urls():
 def test_version_entries():
     assert core.version_entries(["A"]) == [""]
     assert core.version_entries(["A", "Provider B", "Provider B", ""]) == ["", " - Provider B", " - Provider B 2", " - Version 4"]
-    assert core.version_entries(["A", "B", "C"], numbered=True) == ["", " - Version 2", " - Version 3"]
+    assert core.version_entries(["A", "B", "C"], "number") == ["", " - Version 2", " - Version 3"]
+    # Folder mode labels every version, first included.
+    assert core.version_entries(["NETFLIX SERIES", "NETFLIX SERIES ⁴ᴷ ³⁸⁴⁰ᵖ", ""], "folder") == [
+        " - NETFLIX SERIES", " - NETFLIX SERIES 4K 3840p", " - Version 3"]
+    assert core.version_entries(["Same", "same"], "folder") == [" - Same", " - same 2"]
+
+
+def test_folder_label_turns_raised_letters_into_normal_ones():
+    assert core.folder_label("APPLE+ SERIES ⁴ᴷ ³⁸⁴⁰ᵖ ᴰᵒˡᵇʸ ᵛⁱˢⁱᵒⁿ") == "APPLE+ SERIES 4K 3840p Dolby vision"
+    assert core.folder_label("AMAZON REALITY ᴰᵒˡᵇʸ ᴬᵁᴰᴵᴼ ⁴ᵏ ³⁸⁴⁰ᵖ") == "AMAZON REALITY Dolby AUDIO 4k 3840p"
+    assert core.folder_label("|EN| Films: 4K") == "Films 4K"
+    assert core.folder_label(None) == ""
 
 
 def test_category_excluded():

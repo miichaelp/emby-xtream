@@ -383,3 +383,34 @@ def test_fetch_lines_name_the_series_id(tmp_path, caplog):
         Engine(settings(tmp_path), src, FakeControl(), LOG, sleep=lambda s: None).run({}, kinds=("series",))
     assert "'Show' (series 5521) in" in caplog.text and "Backup IPTV" not in caplog.text
     assert "'Show' (series 77) failed after 6 tries" in caplog.text
+
+
+def test_versions_named_by_provider_folder(tmp_path):
+    src = FakeSource(
+        movies=[movie(1, "Heat", versions=[version(11, "IPTV", folder="MOVIES"),
+                                           version(12, "IPTV", folder="MOVIES ⁴ᴷ ³⁸⁴⁰ᵖ")])],
+        shows=[show(1, "13 Reasons Why", [episode(5, 1, 1, "Κασέτα 1, Πλευρά Α", versions=[
+            version(51, "IPTV", folder="NETFLIX SERIES"), version(52, "IPTV", folder="NETFLIX SERIES ⁴ᴷ")])])])
+    run(tmp_path, src, version_label="folder", remove_terms="4K")
+    assert tree(tmp_path) == [
+        "Movies/Heat/Heat - MOVIES 4K 3840p.strm",             # clean-up terms do not touch labels
+        "Movies/Heat/Heat - MOVIES.strm",
+        "Shows/13 Reasons Why/Season 01/13 Reasons Why - S01E01 - Κασέτα 1, Πλευρά Α - NETFLIX SERIES 4K.strm",
+        "Shows/13 Reasons Why/Season 01/13 Reasons Why - S01E01 - Κασέτα 1, Πλευρά Α - NETFLIX SERIES.strm",
+    ]
+    assert read(tmp_path / "Movies/Heat/Heat - MOVIES.strm") == f"{BASE}/proxy/vod/movie/m-1?stream_id=11"
+
+
+def test_episode_titles_can_be_left_out_of_file_names(tmp_path):
+    src = FakeSource(shows=[show(1, "13 Reasons Why", [episode(5, 1, 1, "Κασέτα 1, Πλευρά Α", versions=[
+        version(51, folder="NETFLIX SERIES"), version(52, folder="NETFLIX SERIES ⁴ᴷ")])])])
+    run(tmp_path, src, version_label="folder", episode_titles=False)
+    assert tree(tmp_path) == [
+        "Shows/13 Reasons Why/Season 01/13 Reasons Why - S01E01 - NETFLIX SERIES 4K.strm",
+        "Shows/13 Reasons Why/Season 01/13 Reasons Why - S01E01 - NETFLIX SERIES.strm",
+    ]
+
+
+def test_a_single_version_has_no_folder_suffix(tmp_path):
+    run(tmp_path, FakeSource(movies=[movie(1, "Heat", versions=[version(11, folder="MOVIES")])]), version_label="folder")
+    assert tree(tmp_path) == ["Movies/Heat/Heat.strm"]

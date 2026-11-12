@@ -155,18 +155,41 @@ def xtream_url(base_url, content_path, username, password, item_id, extension):
     )
 
 
-def version_entries(versions, numbered=False):
-    """Suffix for each version of one title: "" for the first, " - Label" for the rest.
+def folder_label(name):
+    """A provider folder (category) name as a version label: "AMAZON SERIES ⁴ᴷ ³⁸⁴⁰ᵖ" -> "AMAZON SERIES 4K 3840p".
 
-    versions: list of provider names, best first. Duplicate labels get a number.
+    Providers write quality tags in raised Unicode letters; NFKC turns them into
+    normal ones. Name clean-up terms are not applied: they would remove exactly
+    what tells the versions apart.
+    """
+    import unicodedata
+
+    text = unicodedata.normalize("NFKC", str(name or ""))
+    text = BOX_ANYWHERE.sub(" ", text)
+    return sanitize_file_name(text)
+
+
+def version_entries(labels, mode="provider"):
+    """The file-name suffix of each version of one title, best version first.
+
+    mode "provider": "" for the first, " - Provider" for the rest.
+    mode "number":   "" for the first, " - Version 2", " - Version 3".
+    mode "folder":   every version named after its folder, " - AMAZON SERIES 4K 3840p",
+                     so the version list shows where each one comes from.
+    A missing label becomes "Version N"; a repeated one gets a number.
     """
     out = []
     seen = {}
-    for index, provider in enumerate(versions):
-        if index == 0:
+    for index, raw in enumerate(labels):
+        if index == 0 and mode != "folder":
             out.append("")
             continue
-        label = sanitize_file_name(provider) if not numbered else ""
+        if mode == "number":
+            label = ""
+        elif mode == "folder":
+            label = folder_label(raw)
+        else:
+            label = sanitize_file_name(raw)
         if not label:
             label = f"Version {index + 1}"
         key = label.lower()

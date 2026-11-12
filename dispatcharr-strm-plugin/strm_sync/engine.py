@@ -58,6 +58,9 @@ class Settings:
         self.xc_password = str(raw.get("xc_password") or "").strip()
         self.multi_version = _as_bool(raw.get("multi_version"), True)
         self.version_label = str(raw.get("version_label") or "provider").strip().lower()
+        if self.version_label not in ("provider", "number", "folder"):
+            self.version_label = "provider"
+        self.episode_titles = _as_bool(raw.get("episode_titles"), True)
         self.movie_folder_mode = str(raw.get("movie_folder_mode") or "single").strip().lower()
         self.series_folder_mode = str(raw.get("series_folder_mode") or "single").strip().lower()
         self.tmdb_folder_ids = _as_bool(raw.get("tmdb_folder_ids"), True)
@@ -195,9 +198,10 @@ class Engine:
                 self.s.base_url, content_type, uuid, first.get("stream_id") if many else None)
         if not many:
             return [("", first_url)]
-        suffixes = core.version_entries(
-            [v.get("provider") for v in versions], numbered=self.s.version_label == "number")
-        out = [("", first_url)]
+        mode = self.s.version_label
+        labels = [v.get("folder") if mode == "folder" else v.get("provider") for v in versions]
+        suffixes = core.version_entries(labels, mode)
+        out = [(suffixes[0], first_url)]
         for suffix, version in list(zip(suffixes, versions))[1:]:
             out.append((suffix, core.proxy_url(self.s.base_url, content_type, uuid, version.get("stream_id"))))
         return out
@@ -497,7 +501,8 @@ class Engine:
             if (season, number) in seen_codes:
                 continue
             seen_codes.add((season, number))
-            base = core.episode_file_base(series_name, season, number, ep.get("title"))
+            base = core.episode_file_base(
+                series_name, season, number, ep.get("title") if self.s.episode_titles else "")
             season_dir = os.path.join(directory, f"Season {season:02d}")
             urls = self._urls("episode", "series", ep["id"], ep["uuid"], ep["versions"])
             before = stats["files_added"]

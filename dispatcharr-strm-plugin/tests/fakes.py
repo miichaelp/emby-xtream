@@ -1,8 +1,8 @@
 import logging
 
 
-def version(stream_id, provider="Provider A", ext="mkv"):
-    return {"stream_id": str(stream_id), "ext": ext, "provider": provider, "account_id": 1}
+def version(stream_id, provider="Provider A", ext="mkv", folder=""):
+    return {"stream_id": str(stream_id), "ext": ext, "provider": provider, "folder": folder, "account_id": 1}
 
 
 def movie(mid, name, year=None, tmdb=None, versions=None, category="Films", language=""):

@@ -107,6 +107,7 @@ class DispatcharrSource:
                 "stream_id": stream_id,
                 "ext": row["container_extension"] or "mp4",
                 "provider": row["m3u_account__name"] or "",
+                "folder": row.get("folder") or "",
                 "account_id": row["m3u_account_id"],
             })
         return out
@@ -135,6 +136,7 @@ class DispatcharrSource:
             )
             .iterator(chunk_size=CHUNK)
         )
+        rows = (dict(r, folder=r["category__name"]) for r in rows)
         for movie_id, group in groupby(rows, key=lambda r: r["movie_id"]):
             group = [r for r in group if self._allowed(r["m3u_account_id"], r["category_id"])]
             if not group:
@@ -210,6 +212,7 @@ class DispatcharrSource:
             .values(
                 "episode_id", "episode__uuid", "episode__name", "episode__season_number",
                 "episode__episode_number", "episode__series_id", "m3u_account_id", "m3u_account__name",
+                "series_relation__category_id", "series_relation__category__name",
                 "stream_id", "container_extension",
             )
             .iterator(chunk_size=CHUNK)
@@ -221,7 +224,15 @@ class DispatcharrSource:
                 continue  # no provider with its category switched on
             episodes = []
             for _episode_id, ep_rows in groupby(series_rows, key=lambda r: r["episode_id"]):
-                ep_rows = [r for r in ep_rows if (series_id, r["m3u_account_id"]) in allowed]
+                # A copy is in use when its own folder is switched on. Older rows without a
+                # folder fall back to the account carrying the show in a folder that is on.
+                ep_rows = [
+                    dict(r, folder=r["series_relation__category__name"] or show.get("category") or "")
+                    for r in ep_rows
+                    if (self._allowed(r["m3u_account_id"], r["series_relation__category_id"])
+                        if r["series_relation__category_id"] is not None
+                        else (series_id, r["m3u_account_id"]) in allowed)
+                ]
                 if not ep_rows:
                     continue
                 first = ep_rows[0]

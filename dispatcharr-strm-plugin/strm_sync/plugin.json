@@ -1,6 +1,6 @@
 {
   "name": "STRM Sync",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Writes .strm files for Dispatcharr's movies and series by hand, after each M3U refresh or on a schedule, so Emby, Jellyfin or Plex can add them as normal libraries. Open the dashboard with the Docs link.",
   "author": "emby-xtream",
   "help_url": "/logos/strm_sync/index.html",
@@ -25,11 +25,12 @@
     { "id": "clean_names", "label": "Clean up names", "type": "boolean", "default": true, "help_text": "Removes provider tags such as |UK|, 'EN - ' or '4K-NF - ' from the start of titles." },
     { "id": "remove_terms", "label": "Also remove these terms from names", "type": "text", "default": "", "help_text": "One per line." },
     { "id": "excluded_categories", "label": "Categories to leave out", "type": "text", "default": "", "help_text": "One category name per line. * is a wildcard, for example *XXX* or FR - *. Categories switched off in Dispatcharr's VOD settings are always left out." },
+    { "id": "episode_titles", "label": "Put episode titles in file names", "type": "boolean", "default": true, "help_text": "Off: Show - S01E01.strm. Emby and Jellyfin take episode titles from their own metadata, and some providers send titles in another language. Changing this renames the files: if the next sync reports that the safety limit stopped the clean-up, set the limit to 0 for one sync so the old names are removed." },
     { "id": "write_nfo", "label": "Write .nfo files with the TMDB id", "type": "boolean", "default": false },
 
     { "id": "h_versions", "type": "info", "label": "Versions and playback", "description": "A title that more than one provider carries can get one file per provider, which Emby shows as versions." },
     { "id": "multi_version", "label": "One version per provider", "type": "boolean", "default": true },
-    { "id": "version_label", "label": "Name extra versions by", "type": "select", "default": "provider", "options": [ { "value": "provider", "label": "Provider name" }, { "value": "number", "label": "Number (Version 2, Version 3)" } ] },
+    { "id": "version_label", "label": "Name versions by", "type": "select", "default": "provider", "options": [ { "value": "folder", "label": "Provider folder (e.g. AMAZON SERIES 4K 3840p)" }, { "value": "provider", "label": "Provider (M3U account) name" }, { "value": "number", "label": "Number (Version 2, Version 3)" } ], "help_text": "Folder: each version is named after the provider category it comes from, useful when one provider lists a title in several folders. Name clean-up terms are not applied to these labels." },
     { "id": "url_style", "label": "Stream URL", "type": "select", "default": "proxy", "options": [ { "value": "proxy", "label": "Dispatcharr proxy (no login in the files)" }, { "value": "xtream", "label": "Xtream URL (Dispatcharr shows which user is watching)" } ] },
     { "id": "xc_username", "label": "Dispatcharr user name (Xtream URL only)", "type": "string", "default": "" },
     { "id": "xc_password", "label": "That user's Xtream password (Xtream URL only)", "type": "string", "input_type": "password", "default": "", "help_text": "The XC password from the user's profile in Dispatcharr, not an admin login. It is written into the .strm files." },

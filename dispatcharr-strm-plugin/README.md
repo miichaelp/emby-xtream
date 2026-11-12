@@ -28,8 +28,16 @@ sync makes no requests to Dispatcharr's API and cannot overload it.
 
 - **Movies**: `Movies/Title (Year) [tmdbid=1]/Title (Year) [tmdbid=1].strm`
 - **Series**: `Shows/Show/Season 01/Show - S01E01 - Title.strm`. Specials go to `Season 00`.
-- **Versions**: a title that more than one provider carries gets one file per provider, named
-  after the provider (`Title - Backup Provider.strm`), which Emby shows as versions.
+- **Versions**: a title that more than one provider carries, or one provider lists in several
+  folders, gets one file per copy, which Emby shows as versions. **Name versions by** chooses the
+  label: the provider folder (`Title - NETFLIX SERIES 4K 3840p.strm`, raised letters such as
+  `⁴ᴷ ³⁸⁴⁰ᵖ` turned into normal ones, clean-up terms not applied), the provider name, or a
+  number.
+- **Episode titles** in file names can be turned off (`Show - S01E01.strm`); media servers take
+  titles from their own metadata, and some providers send them in another language.
+- **Renaming**: changing either setting renames files. The next sync writes the new names and
+  removes the old ones, unless that is more than the removal safety limit allows: then set the
+  limit to 0 for one sync.
 - **Episode lists**: Dispatcharr only loads a show's episodes from the IPTV provider when someone
   opens the show. The plugin asks the provider for the missing ones, one show at a time with a
   pause between requests, just before writing that show, and again when the provider changes a

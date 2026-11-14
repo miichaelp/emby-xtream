@@ -117,6 +117,8 @@ class Plugin:
             message = "No sync has run yet."
         if data["problems"]:
             message += " " + " ".join(data["problems"])
+        settings, _enabled = tasks.load_settings()
+        message += " Dashboard: " + self._dashboard_address(settings)
         return {"status": "ok", "message": message}
 
     # ---- dashboard (called by the page, not shown as buttons) ---------------------

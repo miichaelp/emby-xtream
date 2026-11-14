@@ -77,7 +77,8 @@ def test_dashboard_data_holds_no_secrets(plugin):
     data = run(plugin, "dashboard")
     assert data["counts"] == {"movies": 4} and data["problems"] == [] and data["progress"] == {"running": False}
     assert "s3cretpw" not in str(data) and "xc_password" not in str(data)
-    assert "Last sync" in run(plugin, "status")["message"]
+    status = run(plugin, "status")["message"]
+    assert "Last sync" in status and "Dashboard: http://d:9191/logos/" in status
 
 
 def test_stop_hook_requests_a_stop(plugin):

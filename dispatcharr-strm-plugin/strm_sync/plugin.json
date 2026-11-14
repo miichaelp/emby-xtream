@@ -1,6 +1,6 @@
 {
   "name": "STRM Sync",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Writes .strm files for Dispatcharr's movies and series by hand, after each M3U refresh or on a schedule, so Emby, Jellyfin or Plex can add them as normal libraries. Open the dashboard with the Docs link.",
   "author": "emby-xtream",
   "help_url": "/logos/strm_sync/index.html",
@@ -9,7 +9,7 @@
       "id": "h_start",
       "type": "info",
       "label": "1. Where the files go",
-      "description": "Dashboard (progress, history, Stop): open http://<your Dispatcharr address>/logos/strm_sync/index.html in the browser you are signed in to Dispatcharr with, and bookmark it. The Status button below also shows the address. After installing or updating the plugin, restart Dispatcharr once."
+      "description": "Dashboard (progress, history, Stop): click the 'Docs' link on this plugin's card on the Dispatcharr Plugins page, or type <your Dispatcharr IP:port>/logos/strm_sync/index.html into your browser, for example http://192.168.1.100:9191/logos/strm_sync/index.html. After installing or updating the plugin, restart Dispatcharr once."
     },
     {
       "id": "output_dir",

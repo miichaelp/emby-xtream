@@ -144,7 +144,8 @@
     <div class="row">
       <button id="btn-log">Show log</button>
       <button id="btn-log-dl">Download log</button>
-      <span class="dim">Passwords and API keys are removed.</span>
+      <button id="btn-log-rotate">Start a new log file</button>
+      <span class="dim">Passwords and API keys are removed. A new file also starts each day.</span>
     </div>
     <pre id="log" class="hidden"></pre>
   </section>
@@ -394,6 +395,10 @@
       pre.classList.remove('hidden'); pre.scrollTop = pre.scrollHeight;
       $('btn-log').textContent = 'Hide log';
     }).catch(function (e) { toast(e.message); });
+  });
+  $('btn-log-rotate').addEventListener('click', function () {
+    $('log').classList.add('hidden'); $('btn-log').textContent = 'Show log';
+    act('rotate_log');
   });
   $('btn-log-dl').addEventListener('click', function () {
     call('log').then(function (r) {

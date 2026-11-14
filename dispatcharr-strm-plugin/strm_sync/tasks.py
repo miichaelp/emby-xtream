@@ -123,6 +123,7 @@ def run_sync(kinds=None, trigger="manual", only=None):
         redis.delete(runtime.K_STOP)
         control.progress("", "Starting", 0, 0, force=True)
         ensure_output_dir(settings.output_dir)
+        runtime.set_log_keep(settings.log_keep)
         runtime.add_output_log(settings.output_dir, (settings.xc_password, settings.emby_api_key))
         from .source import DispatcharrSource
 

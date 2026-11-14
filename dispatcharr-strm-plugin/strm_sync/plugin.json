@@ -1,6 +1,6 @@
 {
   "name": "STRM Sync",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Writes .strm files for Dispatcharr's movies and series by hand, after each M3U refresh or on a schedule, so Emby, Jellyfin or Plex can add them as normal libraries. Open the dashboard with the Docs link.",
   "author": "emby-xtream",
   "help_url": "/logos/strm_sync/index.html",
@@ -318,6 +318,13 @@
       "type": "number",
       "default": 20,
       "help_text": "With more than 10 files, a sync never removes more than this share at once, in case the provider suddenly lists far fewer titles. Renamed files are not counted. 0 = no limit."
+    },
+    {
+      "id": "log_keep",
+      "label": "Old log files to keep",
+      "type": "number",
+      "default": 7,
+      "help_text": "The log, strm-sync.log in your STRM folder, starts afresh each day; earlier days become strm-sync-2026-11-13.log and so on. This many are kept, older ones are deleted. 'Start a new log file' below starts one by hand."
     }
   ],
   "actions": [
@@ -359,6 +366,13 @@
       "id": "status",
       "label": "Show status",
       "button_label": "Status",
+      "button_variant": "subtle"
+    },
+    {
+      "id": "rotate_log",
+      "label": "Start a new log file",
+      "description": "Puts the current log aside (with the time in its name) and starts an empty one.",
+      "button_label": "New log file",
       "button_variant": "subtle"
     },
     {

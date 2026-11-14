@@ -1,3 +1,4 @@
+import os
 import fakeredis
 import pytest
 
@@ -92,3 +93,18 @@ def test_the_old_schedule_entry_is_removed_once_on_load(plugin):
     assert plugin["ensured"] == [1]
     run(plugin, "dashboard")
     assert plugin["ensured"] == [1]
+
+
+def test_start_a_new_log_file(plugin, tmp_path):
+    out = tmp_path / "strm"
+    out.mkdir()
+    runtime.add_output_log(str(out))
+    runtime.log.info("a line")
+    assert "strm-sync-" in run(plugin, "rotate_log")["message"]
+    assert any(n.startswith("strm-sync-") for n in os.listdir(out))
+    runtime.log.info("after")
+    assert (out / "strm-sync.log").read_text().strip().endswith("after")
+    for h in list(runtime.log.handlers):
+        if getattr(h, "_strm_sync_output", None):
+            runtime.log.removeHandler(h)
+            h.close()

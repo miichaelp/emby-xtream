@@ -52,7 +52,9 @@ sync makes no requests to Dispatcharr's API and cannot overload it.
   plugin away from the provider entirely: then only shows Dispatcharr already has episodes for get
   files. Movies never need the provider.
 - **Log**: the dashboard's log, Dispatcharr's container log (lines start with `STRM Sync:`), and
-  `strm-sync.log` at the top of the STRM folder, next to `Movies` and `Shows`.
+  `strm-sync.log` at the top of the STRM folder, next to `Movies` and `Shows`. A new file starts
+  each day (the old one becomes `strm-sync-2026-11-13.log`); **Old log files to keep** sets how
+  many days stay, and **Start a new log file** starts one by hand.
 - **Only what changed is written.** A file that already holds the right address is left alone,
   so the media server does not rescan it.
 - **Clean-up**: files for titles Dispatcharr no longer has are removed. Only `.strm` files this

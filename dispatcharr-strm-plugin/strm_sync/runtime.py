@@ -11,7 +11,8 @@ import os
 import shutil
 import time
 import uuid
-from logging.handlers import RotatingFileHandler
+
+from .logfiles import DailyLogHandler, rotate_file
 
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 # Dispatcharr derives the plugin key from the folder name the same way.
@@ -42,14 +43,42 @@ def data_dir():
     return PLUGIN_DIR
 
 
+_log_keep = 7
+
+
+def set_log_keep(keep):
+    """How many old daily log files to keep, for every log file of this process."""
+    global _log_keep
+    try:
+        _log_keep = max(int(keep), 0)
+    except (TypeError, ValueError):
+        return
+    for handler in log.handlers:
+        if isinstance(handler, DailyLogHandler):
+            handler.keep = _log_keep
+
+
+def rotate_logs(output_dir=None):
+    """Starts new log files now (the "Start a new log file" button). Returns the old files' new names."""
+    paths = [os.path.join(data_dir(), "sync.log")]
+    if output_dir:
+        paths.append(os.path.join(output_dir, OUTPUT_LOG_NAME))
+    handlers = {h.path: h for h in log.handlers if isinstance(h, DailyLogHandler)}
+    done = []
+    for path in paths:
+        target = handlers[path].rotate(by_hand=True) if path in handlers else rotate_file(path, _log_keep, by_hand=True)
+        if target:
+            done.append(target)
+    return done
+
+
 def setup_logging():
     """Adds the plugin's own log file once per process."""
     log.setLevel(logging.INFO)
     if any(getattr(h, "_strm_sync", False) for h in log.handlers):
         return log
     try:
-        handler = RotatingFileHandler(
-            os.path.join(data_dir(), "sync.log"), maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+        handler = DailyLogHandler(os.path.join(data_dir(), "sync.log"), keep=_log_keep)
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
         handler._strm_sync = True
         log.addHandler(handler)
@@ -75,7 +104,7 @@ def add_output_log(output_dir, secrets=()):
             log.removeHandler(handler)
             handler.close()
     try:
-        handler = RotatingFileHandler(path, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+        handler = DailyLogHandler(path, keep=_log_keep)
     except OSError as exc:
         log.warning("Could not write the log to %s: %s", path, exc)
         return log

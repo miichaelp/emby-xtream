@@ -97,6 +97,15 @@ class Plugin:
         tasks.queue_delete([kind])
         return {"status": "queued", "message": f"Deleting {kind} files in the background."}
 
+    def _do_rotate_log(self, params):
+        settings, _enabled = tasks.load_settings()
+        runtime.set_log_keep(settings.log_keep)
+        done = runtime.rotate_logs(settings.output_dir if settings.output_dir and os.path.isdir(settings.output_dir) else None)
+        if not done:
+            return {"status": "ok", "message": "The log is empty, so there was nothing to put aside."}
+        names = ", ".join(os.path.basename(p) for p in done)
+        return {"status": "ok", "message": f"New log file started. The previous one is now {names}."}
+
     def _do_delete_movies(self, params):
         return self._delete("movies")
 

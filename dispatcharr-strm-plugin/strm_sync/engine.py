@@ -76,6 +76,7 @@ class Settings:
         self.episode_fetch_delay_ms = int(_as_number(raw.get("episode_fetch_delay_ms"), 500, 0, 60000))
         self.cleanup_orphans = _as_bool(raw.get("cleanup_orphans"), True)
         self.safety_limit = _as_number(raw.get("safety_limit"), 20, 0, 100) / 100.0
+        self.log_keep = int(_as_number(raw.get("log_keep"), 7, 0, 365))
         self.emby_url = core.normalize_base_url(raw.get("emby_url"))
         self.emby_api_key = str(raw.get("emby_api_key") or "").strip()
 

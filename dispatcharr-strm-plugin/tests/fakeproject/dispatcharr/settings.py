@@ -10,3 +10,10 @@ SECRET_KEY = "test"
 DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}
 INSTALLED_APPS = []
 USE_TZ = True
+
+# Like Dispatcharr's own logging: handlers that write to stdout/stderr, made at setup.
+LOGGING = {
+    "version": 1,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "root": {"handlers": ["console"], "level": "INFO"},
+}

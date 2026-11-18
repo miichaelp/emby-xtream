@@ -71,6 +71,15 @@ def test_runner_writes_files_when_enabled(spawned, monkeypatch):
     assert (tmp_path / "strm").is_dir()
 
 
+def test_runner_output_hides_logins(spawned, monkeypatch):
+    tmp_path, data = spawned
+    monkeypatch.setenv("FAKEPROJECT_ENABLED", "0")
+    monkeypatch.setenv("FAKEPROJECT_LEAK", "1")
+    runtime.spawn({"job": "sync", "kinds": ["movies"], "trigger": "manual", "only": None})
+    output = wait_for(str(data / "runner.log"), "sync ->")
+    assert "leakpw99" not in output and "password=***" in output
+
+
 def test_runner_failure_is_logged(spawned, monkeypatch):
     tmp_path, data = spawned
     (tmp_path / "not-dispatcharr").mkdir()

@@ -277,3 +277,23 @@ def test_default_start_tags_are_the_user_list():
     tags = field["default"].splitlines()
     assert "4K -SC-" in tags and "#" in tags and "NF-DO - " in tags
     assert core.clean_name("4K-AMZ - The Boys", prefix_patterns=core.prefix_tag_patterns(tags)) == "The Boys"
+
+
+@pytest.mark.parametrize("line", [
+    "ERROR core.xtream_codes XC API Request failed: 403 Client Error: Forbidden for url: "
+    "http://cf.example.net/player_api.php?username=8d9295c370&password=36144936bf&action=get_series_info&series_id=14416",
+    "ERROR core.xtream_codes Request details: URL=http://cf.example.net/player_api.php, "
+    "Params={'username': '8d9295c370', 'password': '36144936bf', 'action': 'get_series_info', 'series_id': '14416'}",
+    'something {"username": "8d9295c370", "password": "36144936bf"}',
+    "INFO playing http://192.168.1.100:9191/movie/8d9295c370/36144936bf/1234.mkv",
+    "INFO playing http://192.168.1.100:9191/series/8d9295c370/36144936bf/99.mp4 now",
+])
+def test_redact_credentials(line):
+    safe = core.redact_credentials(line)
+    assert "8d9295c370" not in safe and "36144936bf" not in safe
+    assert "series_id" in safe or "playing" in safe or "something" in safe
+
+
+def test_redact_leaves_ordinary_paths_alone():
+    text = "Added show: Movie Night/Series Two (2020) and /proxy/vod/movie/abc-123?stream_id=5"
+    assert core.redact_credentials(text) == text

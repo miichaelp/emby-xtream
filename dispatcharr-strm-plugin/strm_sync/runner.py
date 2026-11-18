@@ -26,6 +26,24 @@ def load_plugin_package():
     return package
 
 
+class _RedactingStream:
+    """Wraps stdout or stderr so nothing written to runner.log shows an IPTV login.
+
+    Dispatcharr's own XC client logs failed requests with the full provider URL,
+    user name and password included; its log handlers write to these streams.
+    """
+
+    def __init__(self, stream, redact):
+        self._stream = stream
+        self._redact = redact
+
+    def write(self, text):
+        return self._stream.write(self._redact(text))
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
 def log_to_container(log):
     """Also writes the sync's log lines to the container's own output.
 
@@ -64,6 +82,19 @@ def main(argv):
 
     load_plugin_package()
     runtime = importlib.import_module(PACKAGE + ".runtime")
+    # Wrapped before anything else logs, though handlers made at django.setup() above hold the
+    # stream objects: so those are swapped on the handlers too.
+    import logging
+
+    core = importlib.import_module(PACKAGE + ".core")
+    for name in ("stdout", "stderr"):
+        original = getattr(sys, name)
+        wrapped = _RedactingStream(original, core.redact_credentials)
+        setattr(sys, name, wrapped)
+        for logger in [logging.getLogger()] + [logging.getLogger(n) for n in list(logging.root.manager.loggerDict)]:
+            for handler in getattr(logger, "handlers", []):
+                if isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) is original:
+                    handler.setStream(wrapped)
     log_to_container(runtime.setup_logging())
     tasks = importlib.import_module(PACKAGE + ".tasks")
     delay = float(job.get("delay") or 0)

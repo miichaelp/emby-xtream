@@ -25,6 +25,13 @@ class Plugin:
         runtime.setup_logging()
         runtime.install_dashboard()
         try:
+            settings, _enabled = tasks.load_settings()
+            cleaned = runtime.scrub_logs(settings.output_dir)
+            if cleaned:
+                runtime.log.info("Removed IPTV logins from %d older log file(s)", cleaned)
+        except Exception as exc:
+            runtime.log.debug("Older log files not checked: %s", exc)
+        try:
             tasks.remove_old_schedule_entry()
         except Exception as exc:  # the database may not be ready during startup discovery
             runtime.log.debug("Old schedule entry not checked: %s", exc)

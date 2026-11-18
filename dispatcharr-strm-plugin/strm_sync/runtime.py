@@ -12,6 +12,7 @@ import shutil
 import time
 import uuid
 
+from .core import redact_credentials
 from .logfiles import DailyLogHandler, rotate_file
 
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -79,7 +80,7 @@ def setup_logging():
         return log
     try:
         handler = DailyLogHandler(os.path.join(data_dir(), "sync.log"), keep=_log_keep)
-        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        handler.setFormatter(_RedactingFormatter("%(asctime)s %(levelname)s %(message)s", ()))
         handler._strm_sync = True
         log.addHandler(handler)
     except OSError:
@@ -120,7 +121,7 @@ class _RedactingFormatter(logging.Formatter):
         self.secrets = [s for s in secrets if s and len(s) >= 4]
 
     def format(self, record):
-        text = super().format(record)
+        text = redact_credentials(super().format(record))
         for secret in self.secrets:
             text = text.replace(secret, "***")
         return text
@@ -134,11 +135,36 @@ def read_log(max_lines=2000, secrets=(), name="sync.log"):
             lines = fh.readlines()[-max_lines:]
     except OSError:
         return ""
-    text = "".join(lines)
+    text = redact_credentials("".join(lines))
     for secret in secrets:
         if secret and len(secret) >= 4:
             text = text.replace(secret, "***")
     return text
+
+
+def scrub_logs(output_dir=None):
+    """Blanks out IPTV logins in log files already written (by versions that did not).
+
+    Runs when the plugin loads; a file is only rewritten when something in it changes.
+    """
+    import glob
+
+    paths = glob.glob(os.path.join(data_dir(), "*.log*"))
+    if output_dir and os.path.isdir(output_dir):
+        paths += glob.glob(os.path.join(output_dir, "strm-sync*.log"))
+    cleaned = 0
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            safe = redact_credentials(text)
+            if safe != text:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(safe)
+                cleaned += 1
+        except OSError:
+            continue
+    return cleaned
 
 
 def redis_client():

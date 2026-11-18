@@ -204,7 +204,7 @@ def test_log_hides_secrets(env):
     for handler in log.handlers:
         handler.flush()
     text = runtime.read_log(secrets=("s3cretpw", ""))
-    assert "s3cretpw" not in text and "/movie/emby/***/7.mkv" in text
+    assert "s3cretpw" not in text and "/movie/***/***/7.mkv" in text
 
 
 def test_check_schedule_queues_a_sync_when_due(env, monkeypatch):
@@ -305,3 +305,21 @@ def test_the_log_is_also_written_into_the_strm_folder(env):
     # A second run keeps one handler, not two.
     tasks.run_sync()
     assert sum(1 for h in runtime.log.handlers if getattr(h, "_strm_sync_output", None)) == 1
+
+
+def test_old_logs_are_scrubbed_and_reads_hide_logins(env, tmp_path):
+    data = runtime.data_dir()
+    with open(os.path.join(data, "runner.log"), "w") as fh:
+        fh.write("XC API Request failed for url: http://p/player_api.php?username=u1234&password=p5678&action=x\n")
+    out = tmp_path / "strmout"
+    out.mkdir()
+    (out / "strm-sync-2026-11-17.log").write_text("Params={'username': 'u1234', 'password': 'p5678'}\n")
+    (out / "strm-sync.log").write_text("nothing secret\n")
+    assert runtime.scrub_logs(str(out)) == 2
+    for path in (os.path.join(data, "runner.log"), out / "strm-sync-2026-11-17.log"):
+        text = open(path).read()
+        assert "u1234" not in text and "p5678" not in text
+    assert runtime.scrub_logs(str(out)) == 0                       # nothing left to change
+    with open(os.path.join(data, "runner.log"), "a") as fh:
+        fh.write("again ?username=u1234&password=p5678\n")
+    assert "p5678" not in runtime.read_log(name="runner.log")

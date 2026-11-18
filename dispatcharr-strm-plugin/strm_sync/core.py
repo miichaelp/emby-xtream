@@ -170,6 +170,25 @@ def category_excluded(category_name, patterns):
     return any(fnmatch.fnmatchcase(name, p.strip().lower()) for p in patterns)
 
 
+_CREDENTIAL_PATTERNS = (
+    # ?username=...&password=... in a URL
+    (re.compile(r"([?&](?:username|password)=)[^&\s'\"]+", re.IGNORECASE), r"\1***"),
+    # {'username': '...', 'password': '...'} as Dispatcharr's XC client logs its request details
+    (re.compile(r"(['\"](?:username|password)['\"]\s*:\s*['\"])[^'\"]*(['\"])", re.IGNORECASE), r"\1***\2"),
+    # Xtream stream paths: /movie/<user>/<password>/123.mkv, /series/..., /live/..., /timeshift/...
+    (re.compile(r"(/(?:movie|series|live|timeshift)/)[^/\s]+/[^/\s]+/(?=[^\s]*\d)", re.IGNORECASE), r"\1***/***/"),
+)
+
+
+def redact_credentials(text):
+    """Blanks out IPTV logins wherever a log line shows them."""
+    if not text:
+        return text
+    for pattern, replacement in _CREDENTIAL_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 def normalize_base_url(url):
     return (url or "").strip().rstrip("/")
 
